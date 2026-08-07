@@ -1,0 +1,37 @@
+{
+  "name": "SevnLife OS",
+  "short_name": "SevnLife",
+  "description": "Asisten produktivitas & pelacak kesehatan personal — offline-first PWA",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E0E5EC",
+  "theme_color": "#E0E5EC",
+  "lang": "id",
+  "scope": "./",
+  "categories": ["productivity", "health", "lifestyle"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Tambah Kegiatan",
+      "short_name": "Tambah",
+      "description": "Buka Beranda dan tambah kegiatan baru",
+      "url": "./index.html#add",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

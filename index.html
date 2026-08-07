@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<meta name="description" content="Asisten produktivitas &amp; pelacak kesehatan personal — offline-first PWA">
+<meta name="theme-color" content="#E0E5EC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SevnLife OS">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<title>SevnLife OS</title>
+<link rel="stylesheet" href="./vendor/phosphor/regular/style.css">
+<link rel="stylesheet" href="./vendor/phosphor/fill/style.css">
+<link rel="stylesheet" href="./vendor/phosphor/bold/style.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+/* ═══════════════════════════════════════════════════════════
+   SEVNLIFE OS — Neumorphism / Soft UI design tokens
+   Elevated = extruded surface (rest state)
+   Inset    = pressed / active / data-entry surface
+   ═══════════════════════════════════════════════════════════ */
+:root{
+  --base:        #E0E5EC;
+  --text:        #2D3436;
+  --text2:       #636E72;
+  --text3:       #9aa3ad;
+  --accent:      #87A96B;
+  --accent-dark: #5f7a4a;
+  --accent-soft: rgba(135,169,107,.18);
+  --danger:      #c0625d;
+  --danger-soft: rgba(192,98,93,.16);
+  --gold:        #c99b46;
+  --shadow-l:    rgba(255,255,255,.6);
+  --shadow-d:    rgba(163,177,198,.6);
+  --page-backdrop: #C7CDD8;
+  --radius-lg:   22px;
+  --radius-md:   16px;
+  --radius-sm:   12px;
+  --radius-pill: 999px;
+  --font-display:'Quicksand', sans-serif;
+  --font-body:   'Manrope', sans-serif;
+  --trans: .25s cubic-bezier(.4,0,.2,1);
+
+  --el:      9px 9px 16px var(--shadow-d), -9px -9px 16px var(--shadow-l);
+  --el-sm:   5px 5px 10px var(--shadow-d), -5px -5px 10px var(--shadow-l);
+  --el-xs:   3px 3px 6px var(--shadow-d), -3px -3px 6px var(--shadow-l);
+  --in:      inset 6px 6px 10px 0 rgba(163,177,198,.7), inset -6px -6px 10px 0 rgba(255,255,255,.8);
+  --in-sm:   inset 4px 4px 7px 0 rgba(163,177,198,.7), inset -4px -4px 7px 0 rgba(255,255,255,.8);
+}
+
+[data-theme="dark"]{
+  --base:        #2A2E37;
+  --text:        #EAEDF3;
+  --text2:       #9DA6B5;
+  --text3:       #626b7a;
+  --accent:      #9DBB84;
+  --accent-dark: #b7d19f;
+  --accent-soft: rgba(157,187,132,.16);
+  --danger:      #e2837e;
+  --danger-soft: rgba(226,131,126,.14);
+  --gold:        #e0b968;
+  --shadow-l:    rgba(255,255,255,.045);
+  --shadow-d:    rgba(0,0,0,.55);
+  --page-backdrop: #1B1E24;
+
+  --el:      9px 9px 16px var(--shadow-d), -9px -9px 16px var(--shadow-l);
+  --el-sm:   5px 5px 10px var(--shadow-d), -5px -5px 10px var(--shadow-l);
+  --el-xs:   3px 3px 6px var(--shadow-d), -3px -3px 6px var(--shadow-l);
+  --in:      inset 6px 6px 10px 0 rgba(0,0,0,.6), inset -6px -6px 10px 0 rgba(255,255,255,.035);
+  --in-sm:   inset 4px 4px 7px 0 rgba(0,0,0,.6), inset -4px -4px 7px 0 rgba(255,255,255,.035);
+}
+body{ transition:background var(--trans), color var(--trans); }
+
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--base); color:var(--text);
+  font-family:var(--font-body); font-size:15px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  padding-bottom:calc(108px + env(safe-area-inset-bottom));
+  overscroll-behavior-y:none;
+}
+h1,h2,h3,.display{font-family:var(--font-display); font-weight:700; letter-spacing:.01em;}
+button{font-family:inherit;}
+::selection{background:var(--accent-soft);}
+
+.app{max-width:520px; margin:0 auto; padding:18px 18px 8px;}
+.page{ padding-bottom:24px; }
+
+/* ── Neumorphic primitives ── */
+.surface-el{ background:var(--base); border-radius:var(--radius-lg); box-shadow:var(--el); }
+.surface-el-sm{ background:var(--base); border-radius:var(--radius-md); box-shadow:var(--el-sm); }
+.surface-in{ background:var(--base); border-radius:var(--radius-md); box-shadow:var(--in); }
+.surface-in-sm{ background:var(--base); border-radius:var(--radius-sm); box-shadow:var(--in-sm); }
+
+.btn{
+  border:none; background:var(--base); color:var(--text); cursor:pointer;
+  border-radius:var(--radius-md); box-shadow:var(--el-sm);
+  font-family:var(--font-body); font-weight:700; font-size:14px;
+  padding:13px 18px; transition:box-shadow var(--trans), transform var(--trans);
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+}
+.btn:active{ box-shadow:var(--in-sm); transform:scale(.98); }
+.btn-block{width:100%;}
+.btn-accent{ color:var(--accent-dark); }
+.btn-danger{ color:var(--danger); }
+.btn-ghost{ box-shadow:none; background:transparent; color:var(--text2); font-weight:600; }
+.btn-ghost:active{ box-shadow:var(--in-sm); }
+.btn-icon{ width:44px; height:44px; padding:0; border-radius:var(--radius-pill); flex-shrink:0; }
+
+.chip{
+  display:inline-flex; align-items:center; gap:6px; padding:7px 13px;
+  border-radius:var(--radius-pill); background:var(--base); box-shadow:var(--el-xs);
+  font-size:12.5px; font-weight:700; color:var(--text2); cursor:pointer;
+  border:none; transition:box-shadow var(--trans), color var(--trans);
+}
+.chip.active{ box-shadow:var(--in-sm); color:var(--accent-dark); }
+
+input, select, textarea{
+  width:100%; border:none; background:var(--base); color:var(--text);
+  border-radius:var(--radius-sm); box-shadow:var(--in-sm);
+  padding:12px 14px; font-family:var(--font-body); font-size:14.5px; font-weight:600;
+  outline:none;
+}
+input::placeholder, textarea::placeholder{ color:var(--text3); font-weight:500; }
+label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.04em; display:block; margin:0 0 7px 2px; }
+.field{ margin-bottom:16px; }
+.field-row{ display:flex; gap:12px; }
+.field-row > .field{ flex:1; }
+
+/* ── Header ── */
+.topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+.brand{ display:flex; align-items:center; gap:10px; }
+.brand-mark{
+  width:38px; height:38px; border-radius:12px; background:var(--base); box-shadow:var(--el-sm);
+  display:flex; align-items:center; justify-content:center; color:var(--accent-dark); font-size:19px;
+}
+.brand-name{ font-size:16px; font-weight:700; }
+.brand-sub{ font-size:10.5px; color:var(--text3); font-weight:600; letter-spacing:.08em; text-transform:uppercase; margin-top:-2px; }
+
+.date-nav{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+.date-nav .surface-el-sm{ flex:1; text-align:center; padding:11px 8px; }
+.date-label{ font-family:var(--font-display); font-weight:700; font-size:15px; }
+.date-sub{ font-size:11px; color:var(--text2); font-weight:600; margin-top:1px; }
+
+/* ── Progress card ── */
+.progress-card{ padding:20px; margin-bottom:16px; display:flex; align-items:center; gap:18px; }
+.ring-wrap{ position:relative; width:92px; height:92px; flex-shrink:0; }
+.ring-wrap canvas{ width:92px !important; height:92px !important; }
+.ring-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.ring-pct{ font-family:var(--font-display); font-weight:700; font-size:18px; }
+.ring-label{ font-size:9px; color:var(--text2); font-weight:700; text-transform:uppercase; }
+.progress-stats{ flex:1; display:flex; flex-direction:column; gap:8px; }
+.pstat{ display:flex; align-items:center; justify-content:space-between; }
+.pstat-label{ display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text2); font-weight:700; }
+.pstat-label i{ font-size:15px; }
+.pstat-value{ font-family:var(--font-display); font-weight:700; font-size:14.5px; }
+.pstat-value.burn{ color:#c0625d; }
+.pstat-value.eat{ color:var(--gold); }
+.pstat-value.net{ color:var(--accent-dark); }
+
+/* ── Quick actions ── */
+.quick-row{ display:flex; gap:10px; margin-bottom:20px; }
+.quick-row .btn{ flex:1; }
+
+/* ── Timeline ── */
+.section-label{ font-size:12px; font-weight:800; color:var(--text2); text-transform:uppercase; letter-spacing:.06em; margin:22px 2px 10px; display:flex; align-items:center; gap:8px; }
+.section-label .line{ flex:1; height:1px; background:linear-gradient(90deg, rgba(163,177,198,.5), transparent); }
+
+.empty-state{ text-align:center; padding:44px 20px; color:var(--text3); }
+.empty-state i{ font-size:38px; margin-bottom:10px; display:block; color:var(--text3); }
+.empty-state p{ font-size:13px; font-weight:600; margin:0; }
+
+.timeline{ display:flex; flex-direction:column; gap:12px; }
+.tblock{ overflow:hidden; transition:box-shadow var(--trans); }
+.tblock-head{ display:flex; align-items:center; gap:13px; padding:15px 16px; cursor:pointer; }
+.tblock-icon{
+  width:42px; height:42px; border-radius:13px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:19px;
+  background:var(--base); box-shadow:var(--el-xs); color:var(--accent-dark);
+}
+.tblock-info{ flex:1; min-width:0; }
+.tblock-time{ font-size:11px; color:var(--text2); font-weight:700; letter-spacing:.02em; }
+.tblock-title{ font-family:var(--font-display); font-weight:700; font-size:14.5px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tblock-title.done{ text-decoration:line-through; color:var(--text3); }
+.tblock-meta{ font-size:11px; color:var(--text3); font-weight:600; margin-top:2px; display:flex; gap:8px; }
+.tblock-chevron{ color:var(--text3); font-size:16px; transition:transform var(--trans); flex-shrink:0; }
+.tblock.open .tblock-chevron{ transform:rotate(180deg); }
+
+.tblock-body{ max-height:0; overflow:hidden; transition:max-height var(--trans); }
+.tblock.open .tblock-body{ max-height:600px; }
+.tblock-body-inner{ padding:0 16px 16px 16px; }
+
+.subtask-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+.subtask{ display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:var(--radius-sm); }
+.subtask-check{
+  width:22px; height:22px; border-radius:8px; flex-shrink:0; background:var(--base);
+  box-shadow:var(--el-xs); display:flex; align-items:center; justify-content:center;
+  color:transparent; font-size:13px; cursor:pointer; transition:box-shadow var(--trans), color var(--trans), background var(--trans);
+}
+.subtask-check.done{ box-shadow:var(--in-sm); background:var(--accent-soft); color:var(--accent-dark); }
+.subtask-title{ font-size:13.5px; font-weight:600; flex:1; cursor:pointer; }
+.subtask-title.done{ text-decoration:line-through; color:var(--text3); }
+.subtask-del{ color:var(--text3); font-size:15px; cursor:pointer; padding:4px; }
+
+.tblock-actions{ display:flex; gap:8px; margin-top:4px; }
+.tblock-actions .btn{ flex:1; padding:9px; font-size:12.5px; }
+
+/* ── FAB ── */
+.fab{
+  position:fixed; right:max(20px, calc(50vw - 240px)); bottom:calc(84px + env(safe-area-inset-bottom));
+  width:58px; height:58px; border-radius:50%; background:var(--base); box-shadow:var(--el);
+  color:var(--accent-dark); font-size:26px; display:flex; align-items:center; justify-content:center;
+  border:none; cursor:pointer; z-index:40; transition:box-shadow var(--trans), transform var(--trans);
+}
+.fab:active{ box-shadow:var(--in); transform:scale(.94); }
+
+/* ── Bottom nav ── */
+.bottom-nav{
+  position:fixed; left:0; right:0; bottom:0; z-index:30;
+  max-width:520px; margin:0 auto;
+  background:var(--base); box-shadow:0 -6px 18px rgba(163,177,198,.35);
+  padding:10px 10px calc(10px + env(safe-area-inset-bottom));
+  display:flex; justify-content:space-around;
+}
+.nav-item{ display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--text3); cursor:pointer; padding:6px 12px; border-radius:var(--radius-md); transition:box-shadow var(--trans), color var(--trans); }
+.nav-item i{ font-size:21px; }
+.nav-item span{ font-size:10px; font-weight:700; }
+.nav-item.active{ color:var(--accent-dark); box-shadow:var(--in-sm); }
+
+/* ── Modal sheet ── */
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(45,52,54,.28); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  display:flex; align-items:flex-end; justify-content:center; z-index:100;
+  opacity:0; pointer-events:none; transition:opacity var(--trans);
+}
+.modal-overlay.open{ opacity:1; pointer-events:auto; }
+.modal-sheet{
+  background:var(--base); width:100%; max-width:520px; border-radius:26px 26px 0 0;
+  padding:14px 20px calc(24px + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto;
+  transform:translateY(100%); transition:transform var(--trans); box-shadow:0 -10px 30px rgba(163,177,198,.4);
+}
+.modal-overlay.open .modal-sheet{ transform:translateY(0); }
+.sheet-handle{ width:40px; height:5px; border-radius:3px; background:var(--shadow-d); margin:2px auto 16px; }
+.sheet-title{ font-family:var(--font-display); font-weight:700; font-size:18px; margin-bottom:16px; display:flex; align-items:center; gap:9px; }
+
+/* ── Responsive: tablet framed-card treatment (560–1023px) ──
+   Below 560px (phones) the layout is unchanged edge-to-edge. From 560px up
+   the app renders as a centered "device" card on a distinct backdrop instead
+   of floating narrow content on a same-colored void. */
+@media (min-width:560px){
+  body{ background:var(--page-backdrop); }
+  .app{
+    background:var(--base); margin:28px auto 0; border-radius:28px 28px 0 0;
+    box-shadow:0 24px 60px rgba(0,0,0,.18); min-height:calc(100vh - 28px);
+  }
+  .bottom-nav{ border-radius:26px 26px 0 0; }
+}
+
+.toast-wrap{ position:fixed; top:calc(16px + env(safe-area-inset-top)); left:0; right:0; max-width:520px; margin:0 auto; display:flex; flex-direction:column; align-items:center; gap:8px; z-index:200; pointer-events:none; }
+
+/* ── Responsive: desktop (≥1024px) ──
+   Nav becomes a fixed left sidebar (same markup, restyled) and the content
+   area widens to use real monitor space instead of staying phone-width.
+   Card content flows into 2–3 CSS columns per page (headers/section-labels
+   break out full-width via column-span) so the screen doesn't sit mostly
+   empty on a wide viewport — a genuine desktop layout, not a scaled-up phone. */
+@media (min-width:1024px){
+  body{ padding-bottom:0; background:var(--page-backdrop); }
+
+  .bottom-nav{
+    top:0; left:0; right:auto; bottom:0; max-width:232px; width:232px; margin:0;
+    flex-direction:column; align-items:stretch; justify-content:flex-start; gap:5px;
+    padding:32px 16px; border-radius:0; box-shadow:6px 0 24px rgba(0,0,0,.12);
+  }
+  .nav-item{ flex-direction:row; justify-content:flex-start; gap:13px; padding:12px 15px; }
+  .nav-item i{ font-size:20px; }
+  .nav-item span{ font-size:13px; }
+
+  .app{
+    /* Fill the entire remaining viewport width next to the sidebar instead of
+       being capped/left-locked — the max-width cap lives on .page below, so
+       it gets centered *within* this full-width strip instead of hugging left. */
+    margin:0 0 0 232px; width:calc(100% - 232px); max-width:none; padding:36px 40px 48px;
+    border-radius:0; box-shadow:none; min-height:100vh;
+  }
+  /* Single centered column instead of CSS `column-count` magazine-flow.
+     column-count looked like it would give a tidy 2–3 column dashboard, but it
+     re-flows every individual descendant (list items, chart, stat rows) through
+     the column tracks in document order — not just the top-level cards. That
+     scattered list items like #timelog-list's entries across separate columns,
+     and produced a Chromium rendering bug where a break-inside:avoid card with
+     box-shadow/border-radius gets its shadow duplicated/bled at a column
+     boundary (the floating rounded-corner ghost over the Distribusi Waktu
+     chart). A calmer, wider single column is far more predictable for a
+     JS-rendered card UI like this one. */
+  .page{ max-width:760px; margin:0 auto; padding-bottom:0; }
+
+  .fab{ right:40px; bottom:40px; }
+  .toast-wrap{ left:232px; right:0; max-width:760px; margin:0 auto; }
+}
+
+.cat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-bottom:16px; }
+.cat-opt{ display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 6px; border-radius:var(--radius-md); background:var(--base); box-shadow:var(--el-xs); cursor:pointer; border:none; color:var(--text2); }
+.cat-opt i{ font-size:20px; }
+.cat-opt span{ font-size:10.5px; font-weight:700; }
+.cat-opt.active{ box-shadow:var(--in-sm); color:var(--accent-dark); }
+
+.subtask-input-row{ display:flex; gap:8px; margin-bottom:8px; }
+.subtask-input-row input{ flex:1; }
+.add-subtask-btn{ color:var(--accent-dark); font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; cursor:pointer; padding:8px 2px; }
+
+.hint-box{ display:flex; gap:10px; padding:12px 14px; border-radius:var(--radius-sm); background:var(--accent-soft); margin-bottom:14px; }
+.hint-box i{ color:var(--accent-dark); font-size:17px; flex-shrink:0; margin-top:1px; }
+.hint-box p{ margin:0; font-size:12px; color:var(--accent-dark); font-weight:600; line-height:1.5; }
+
+/* ── Toast ── */
+.toast{
+  background:var(--base); box-shadow:var(--el-sm); border-radius:var(--radius-pill);
+  padding:11px 20px; font-size:12.5px; font-weight:700; color:var(--text);
+  display:flex; align-items:center; gap:8px; animation:toastIn .25s ease, toastOut .25s ease 2.4s forwards;
+}
+.toast i{ font-size:16px; }
+.toast.success i{ color:var(--accent-dark); }
+.toast.error i{ color:var(--danger); }
+@keyframes toastIn{ from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
+@keyframes toastOut{ from{opacity:1;} to{opacity:0; transform:translateY(-10px);} }
+
+/* ── Settings ── */
+.settings-group{ margin-bottom:22px; }
+.settings-group-title{ font-size:12px; font-weight:800; color:var(--text2); text-transform:uppercase; letter-spacing:.05em; margin:0 2px 10px; }
+.setting-row{ display:flex; align-items:center; justify-content:space-between; padding:15px 16px; margin-bottom:10px; }
+.setting-row-text{ flex:1; }
+.setting-row-title{ font-weight:700; font-size:13.5px; }
+.setting-row-sub{ font-size:11.5px; color:var(--text2); margin-top:2px; }
+.parser-log{ font-size:12px; font-weight:600; color:var(--text2); padding:12px 14px; margin-top:10px; white-space:pre-wrap; }
+
+.page{ display:none; }
+.page.active{ display:block; }
+
+@media (max-width:340px){ .cat-grid{ grid-template-columns:repeat(2,1fr); } }
+
+/* ═══ Greeting header ═══ */
+.greeting{ margin-bottom:14px; }
+.greeting-hi{ font-family:var(--font-display); font-weight:700; font-size:19px; }
+.greeting-sub{ font-size:12px; color:var(--text2); font-weight:600; margin-top:2px; }
+
+/* ═══ Quick Daily Entry ═══ */
+.quick-entry{ display:flex; gap:9px; margin-bottom:18px; }
+.quick-entry input{ flex:1; }
+.quick-entry .btn-icon{ box-shadow:var(--el-sm); color:var(--accent-dark); }
+
+/* ═══ Tag chips (System Tagging) ═══ */
+.tag-chip{
+  display:inline-flex; align-items:center; gap:5px; padding:4px 10px;
+  border-radius:var(--radius-pill); font-size:10.5px; font-weight:800;
+  background:var(--accent-soft); color:var(--accent-dark); white-space:nowrap;
+}
+.tag-chip.project{ background:rgba(135,169,107,.1); color:var(--text2); }
+.tag-select-grid{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+.tag-opt{
+  padding:8px 13px; border-radius:var(--radius-pill); background:var(--base); box-shadow:var(--el-xs);
+  font-size:11.5px; font-weight:700; color:var(--text2); border:none; cursor:pointer;
+}
+.tag-opt.active{ box-shadow:var(--in-sm); color:var(--accent-dark); }
+
+/* ═══ Badges (phase / duration) ═══ */
+.badge{
+  display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:var(--radius-pill);
+  background:var(--base); box-shadow:var(--in-sm); font-size:10px; font-weight:700; color:var(--text2);
+}
+.badge.sched-badge{ background:var(--accent-soft); color:var(--accent-dark); box-shadow:none; }
+.badge.badge-overdue{ background:var(--danger-soft); color:var(--danger); box-shadow:none; }
+.badge.badge-overdue[data-reschedule]{ cursor:pointer; }
+
+/* ═══ Toggle switch ═══ */
+.toggle{ width:48px; height:28px; border-radius:var(--radius-pill); background:var(--base); box-shadow:var(--in-sm); position:relative; cursor:pointer; flex-shrink:0; border:none; transition:box-shadow var(--trans); }
+.toggle-knob{ position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:var(--base); box-shadow:var(--el-xs); transition:transform var(--trans), background var(--trans); }
+.toggle.on{ box-shadow:var(--in-sm); }
+.toggle.on .toggle-knob{ transform:translateX(20px); background:var(--accent); box-shadow:none; }
+
+/* ═══ Projects — Accordion ═══ */
+.project-card{ margin-bottom:14px; overflow:hidden; }
+.project-head{ padding:16px 16px 14px; cursor:pointer; }
+.project-title-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+.project-title{ font-family:var(--font-display); font-weight:700; font-size:15px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-chevron{ color:var(--text3); font-size:16px; transition:transform var(--trans); flex-shrink:0; }
+.project-card.open .project-chevron{ transform:rotate(180deg); }
+.project-meta-row{ display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.project-progress-row{ display:flex; align-items:center; gap:10px; }
+.progress-track{ flex:1; height:9px; border-radius:var(--radius-pill); background:var(--base); box-shadow:var(--in-sm); overflow:hidden; }
+.progress-fill{ height:100%; border-radius:var(--radius-pill); background:linear-gradient(90deg, var(--accent), var(--accent-dark)); transition:width .35s ease; }
+.progress-pct{ font-family:var(--font-display); font-weight:700; font-size:12px; color:var(--accent-dark); min-width:32px; text-align:right; }
+
+.project-body{ max-height:0; overflow:hidden; transition:max-height var(--trans); }
+.project-card.open .project-body{ max-height:2000px; }
+.project-body-inner{ padding:0 16px 16px; }
+.ptask-section-label{ font-size:10.5px; font-weight:800; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin:10px 2px 8px; }
+.ptask{ display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:7px; flex-wrap:wrap; }
+.ptask-title{ font-size:13px; font-weight:600; flex:1; min-width:120px; cursor:pointer; overflow-wrap:break-word; }
+.ptask-title.done{ text-decoration:line-through; color:var(--text3); }
+.ptask-badges{ display:flex; gap:5px; flex-wrap:wrap; }
+.project-actions{ display:flex; gap:8px; margin-top:6px; }
+.project-actions .btn{ flex:1; padding:9px; font-size:12px; }
+
+/* ═══ Time-Log ═══ */
+.timelog-item{ display:flex; align-items:center; gap:12px; padding:13px 15px; margin-bottom:9px; }
+.timelog-icon{ width:36px; height:36px; border-radius:11px; background:var(--base); box-shadow:var(--el-xs); display:flex; align-items:center; justify-content:center; color:var(--accent-dark); font-size:16px; flex-shrink:0; }
+.timelog-info{ flex:1; min-width:0; }
+.timelog-title{ font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.timelog-meta{ display:flex; gap:7px; align-items:center; margin-top:3px; flex-wrap:wrap; }
+.timelog-duration{ font-size:11.5px; color:var(--text2); font-weight:700; font-family:var(--font-display); flex-shrink:0; }
+
+/* ═══ Quick Tasks tag filter ═══ */
+.quick-filter-row{ margin-bottom:0; }
+.quick-filter-row:empty{ margin-bottom:0; }
+.quick-filter-row:not(:empty){ margin-bottom:12px; }
+
+/* ═══ Habit Engine ═══ */
+.habit-card{ display:flex; align-items:center; gap:13px; padding:14px 16px; margin-bottom:10px; cursor:pointer; }
+.habit-check{
+  width:30px; height:30px; border-radius:11px; flex-shrink:0; background:var(--base);
+  box-shadow:var(--el-xs); display:flex; align-items:center; justify-content:center;
+  color:transparent; font-size:15px; cursor:pointer; transition:box-shadow var(--trans), color var(--trans), background var(--trans);
+}
+.habit-check.done{ box-shadow:var(--in-sm); background:var(--accent-soft); color:var(--accent-dark); }
+.habit-info{ flex:1; min-width:0; }
+.habit-title{ font-family:var(--font-display); font-weight:700; font-size:14px; }
+.habit-title.done{ text-decoration:line-through; color:var(--text3); }
+.habit-badges{ display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+.habit-chevron{ color:var(--text3); font-size:16px; flex-shrink:0; }
+.badge.streak-flame{ background:rgba(201,155,70,.16); color:var(--gold); }
+
+/* ═══ Consistency & Distribution ═══ */
+.consistency-row{ display:flex; gap:10px; }
+.consistency-stat{ flex:1; text-align:center; padding:13px 8px; border-radius:var(--radius-md); background:var(--base); box-shadow:var(--in-sm); }
+.consistency-pct{ font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--accent-dark); }
+.consistency-label{ font-size:10px; color:var(--text2); font-weight:700; text-transform:uppercase; margin-top:2px; letter-spacing:.04em; }
+.dist-chart-wrap{ margin-top:16px; height:160px; position:relative; }
+
+/* ═══ Story Maker / Journal ═══ */
+.persona-row{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.journal-entry{ padding:15px; margin-bottom:12px; }
+.journal-date{ font-size:10.5px; font-weight:800; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+.journal-text{ font-size:13px; line-height:1.7; color:var(--text); white-space:pre-wrap; }
+.journal-persona{ display:flex; gap:6px; margin-top:10px; }
+
+@media (max-width:340px){ .cat-grid{ grid-template-columns:repeat(2,1fr); } }
+</style>
+</head>
+<body>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<div class="app">
+
+  <!-- ═══ TOPBAR ═══ -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"><i class="ph-fill ph-flower-lotus"></i></div>
+      <div>
+        <div class="brand-name">SevnLife OS</div>
+        <div class="brand-sub">Timeline &amp; Health</div>
+      </div>
+    </div>
+    <button class="btn btn-icon" id="btn-settings-shortcut" aria-label="Setelan"><i class="ph ph-gear"></i></button>
+  </div>
+
+  <!-- ═══ PAGE: HOME ═══ -->
+  <div class="page active" id="page-home">
+
+    <div class="greeting">
+      <div class="greeting-hi" id="greeting-hi">Apa yang kamu kerjakan hari ini?</div>
+      <div class="greeting-sub" id="greeting-date">—</div>
+    </div>
+
+    <div class="quick-entry">
+      <input type="text" id="quick-entry-input" placeholder="Catat tugas cepat... (cth: Belajar tata bahasa Jepang jam 7 malam)">
+      <button class="btn btn-icon" id="btn-quick-entry-send" aria-label="Kirim"><i class="ph-bold ph-paper-plane-tilt"></i></button>
+    </div>
+
+    <div id="scheduled-tasks-wrap"></div>
+    <div class="tag-select-grid quick-filter-row" id="quick-tasks-filter"></div>
+    <div id="quick-tasks-wrap"></div>
+
+    <div class="date-nav">
+      <button class="btn btn-icon" id="btn-prev-day" aria-label="Hari sebelumnya"><i class="ph ph-caret-left"></i></button>
+      <div class="surface-el-sm" id="date-display">
+        <div class="date-label" id="date-label">Hari ini</div>
+        <div class="date-sub" id="date-sub">Senin, 1 Jan</div>
+      </div>
+      <button class="btn btn-icon" id="btn-next-day" aria-label="Hari berikutnya"><i class="ph ph-caret-right"></i></button>
+    </div>
+
+    <div class="progress-card surface-el">
+      <div class="ring-wrap">
+        <canvas id="progress-ring"></canvas>
+        <div class="ring-center">
+          <div class="ring-pct" id="ring-pct">0%</div>
+          <div class="ring-label">Tugas</div>
+        </div>
+      </div>
+      <div class="progress-stats">
+        <div class="pstat">
+          <div class="pstat-label"><i class="ph ph-fire"></i> Terbakar</div>
+          <div class="pstat-value burn" id="stat-burned">0 kcal</div>
+        </div>
+        <div class="pstat">
+          <div class="pstat-label"><i class="ph ph-bowl-food"></i> Masuk</div>
+          <div class="pstat-value eat" id="stat-consumed">0 kcal</div>
+        </div>
+        <div class="pstat">
+          <div class="pstat-label"><i class="ph ph-scales"></i> Net</div>
+          <div class="pstat-value net" id="stat-net">0 kcal</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="quick-row">
+      <button class="btn btn-accent" id="btn-tomorrow"><i class="ph ph-calendar-plus"></i> Jadwal Besok</button>
+      <button class="btn" id="btn-today"><i class="ph ph-clock-countdown"></i> Ke Hari Ini</button>
+    </div>
+
+    <div class="section-label"><span id="timeline-label">Linimasa</span><span class="line"></span></div>
+    <div class="timeline" id="timeline"></div>
+
+  </div>
+
+  <!-- ═══ PAGE: PROYEK ═══ -->
+  <div class="page" id="page-projects">
+    <div class="topbar">
+      <div><div class="brand-name">Proyek</div><div class="brand-sub">Goal Super-Planner</div></div>
+      <button class="btn btn-accent" id="btn-new-project"><i class="ph ph-plus"></i> Proyek Baru</button>
+    </div>
+    <div id="projects-list"></div>
+  </div>
+
+  <!-- ═══ PAGE: KEBIASAAN (Habit Engine) ═══ -->
+  <div class="page" id="page-habits">
+    <div class="topbar">
+      <div><div class="brand-name">Kebiasaan</div><div class="brand-sub">Habit Engine &amp; Streak</div></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="btn-context-ai" title="Analisa Konteks AI"><i class="ph ph-sparkle"></i></button>
+        <button class="btn btn-accent" id="btn-new-habit"><i class="ph ph-plus"></i> Baru</button>
+      </div>
+    </div>
+    <div id="habits-list"></div>
+  </div>
+
+  <!-- ═══ PAGE: JURNAL ═══ -->
+  <div class="page" id="page-journal">
+    <div class="topbar">
+      <div><div class="brand-name">Jurnal</div><div class="brand-sub">Time-Log &amp; Story Maker</div></div>
+    </div>
+
+    <div class="section-label"><span>Jejak Waktu Hari Ini</span><span class="line"></span>
+      <button class="btn btn-icon" id="btn-add-timelog" style="width:34px;height:34px;"><i class="ph ph-plus"></i></button>
+    </div>
+    <div id="timelog-list"></div>
+
+    <div class="section-label" style="margin-top:26px;"><span>Konsistensi</span><span class="line"></span></div>
+    <div class="surface-el" style="padding:18px; margin-bottom:16px;">
+      <div class="consistency-row" id="consistency-row"></div>
+    </div>
+
+    <div class="section-label" style="margin-top:26px;"><span>Distribusi Waktu · 7 Hari Terakhir</span><span class="line"></span></div>
+    <div class="surface-el" style="padding:18px; margin-bottom:16px;">
+      <div class="dist-chart-wrap"><canvas id="distribution-chart"></canvas></div>
+    </div>
+
+    <div class="section-label" style="margin-top:26px;"><span>Story Maker</span><span class="line"></span></div>
+    <div class="surface-el" style="padding:18px; margin-bottom:16px;">
+      <label>Sudut Pandang</label>
+      <div class="persona-row" id="pov-row"></div>
+      <label>Gaya Bahasa</label>
+      <div class="persona-row" id="tone-row"></div>
+      <button class="btn btn-accent btn-block" id="btn-generate-story"><i class="ph ph-sparkle"></i> Buat &amp; Salin Prompt Cerita</button>
+      <div class="field" style="margin-top:14px;">
+        <label>Tempel Hasil AI</label>
+        <textarea id="story-paste-input" rows="5" placeholder="Tempel narasi jurnal dari AI di sini..."></textarea>
+      </div>
+      <button class="btn btn-block" id="btn-save-story"><i class="ph ph-floppy-disk"></i> Simpan sebagai Jurnal</button>
+    </div>
+
+    <div class="section-label"><span>Riwayat Jurnal</span><span class="line"></span></div>
+    <div id="journal-list"></div>
+  </div>
+
+  <!-- ═══ PAGE: SETTINGS ═══ -->
+  <div class="page" id="page-settings">
+
+    <div class="settings-group">
+      <div class="settings-group-title">Profil</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Nama Panggilan</div>
+          <div class="setting-row-sub">Dipakai di sapaan Beranda &amp; jurnal — belum ada sistem login</div>
+        </div>
+        <input type="text" id="setting-username" placeholder="Sevn" style="width:110px;">
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Tampilan</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Mode Gelap</div>
+          <div class="setting-row-sub">Ubah tema seluruh aplikasi</div>
+        </div>
+        <button class="toggle" id="toggle-dark-mode" aria-label="Mode gelap"><div class="toggle-knob"></div></button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Local Native Reminders</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Pengingat Tugas Harian</div>
+          <div class="setting-row-sub">Notifikasi lokal, 100% offline — hanya berbunyi selagi tab/app ini terbuka di latar</div>
+        </div>
+        <button class="toggle" id="toggle-reminder" aria-label="Aktifkan pengingat"><div class="toggle-knob"></div></button>
+      </div>
+      <div class="setting-row surface-el-sm" id="reminder-time-row" style="display:none;">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Jam Pengingat</div>
+          <div class="setting-row-sub">Dicek setiap menit selagi aplikasi terbuka</div>
+        </div>
+        <input type="time" id="reminder-time" style="width:110px;">
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">AI Schedule Parser</div>
+      <div class="hint-box">
+        <i class="ph ph-sparkle"></i>
+        <p>Tempel balasan jadwal dari AI (ChatGPT/Gemini). Gunakan format: <b>=== YYYY-MM-DD ===</b> per hari, lalu baris <b>HH:MM-HH:MM Judul [Kategori]</b>, dan baris <b>- sub-tugas</b> di bawahnya. Ketuk "Lihat Contoh &amp; Salin Prompt" bila perlu bantuan.</p>
+      </div>
+      <div class="field">
+        <textarea id="ai-parser-input" rows="7" placeholder="=== 2026-08-03 ===&#10;08:00-10:00 Sesi Fokus Coding [Belajar/Kerja]&#10;- Review PR&#10;- Deploy staging&#10;&#10;19:00-19:45 Lari sore [Olahraga: Lari]"></textarea>
+      </div>
+      <div class="quick-row">
+        <button class="btn btn-ghost" id="btn-copy-format"><i class="ph ph-copy"></i> Contoh Format</button>
+        <button class="btn btn-accent" id="btn-parse"><i class="ph ph-magic-wand"></i> Parse</button>
+      </div>
+      <div class="parser-log surface-in-sm" id="parser-log" style="display:none;"></div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Local Data Rescue</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Ekspor Cadangan</div>
+          <div class="setting-row-sub">Unduh seluruh data ke file .json</div>
+        </div>
+        <button class="btn btn-icon" id="btn-export"><i class="ph ph-download-simple"></i></button>
+      </div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Impor Cadangan</div>
+          <div class="setting-row-sub">Pulihkan data dari file .json</div>
+        </div>
+        <button class="btn btn-icon" id="btn-import"><i class="ph ph-upload-simple"></i></button>
+        <input type="file" id="import-file-input" accept="application/json" style="display:none;">
+      </div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Hapus Semua Data</div>
+          <div class="setting-row-sub">Tindakan ini tidak bisa dibatalkan</div>
+        </div>
+        <button class="btn btn-icon btn-danger" id="btn-reset"><i class="ph ph-trash"></i></button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Tentang</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">SevnLife OS</div>
+          <div class="setting-row-sub">Neumorphism Edition · v2.0 · Offline-first PWA</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" aria-label="Tambah kegiatan"><i class="ph-bold ph-plus"></i></button>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <div class="nav-item active" data-page="home"><i class="ph ph-house"></i><span>Beranda</span></div>
+  <div class="nav-item" data-page="projects"><i class="ph ph-kanban"></i><span>Proyek</span></div>
+  <div class="nav-item" data-page="habits"><i class="ph ph-repeat"></i><span>Kebiasaan</span></div>
+  <div class="nav-item" data-page="journal"><i class="ph ph-book-open"></i><span>Jurnal</span></div>
+  <div class="nav-item" data-page="settings"><i class="ph ph-gear"></i><span>Setelan</span></div>
+</nav>
+
+<!-- ═══ MODAL: ADD/EDIT ACTIVITY ═══ -->
+<div class="modal-overlay" id="activity-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-note-pencil"></i> <span id="activity-modal-title">Tambah Kegiatan</span></div>
+
+    <label>Kategori</label>
+    <div class="cat-grid" id="cat-grid"></div>
+
+    <div class="field" id="exercise-type-field" style="display:none;">
+      <label>Jenis Olahraga</label>
+      <select id="exercise-type"></select>
+    </div>
+
+    <div class="field" id="meal-preset-field" style="display:none;">
+      <label>Jenis Konsumsi</label>
+      <select id="meal-preset"></select>
+    </div>
+
+    <div class="field">
+      <label>Judul Kegiatan</label>
+      <input type="text" id="activity-title" placeholder="cth: Sesi Fokus Coding">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Jam Mulai</label>
+        <input type="time" id="activity-start">
+      </div>
+      <div class="field">
+        <label>Jam Selesai</label>
+        <input type="time" id="activity-end">
+      </div>
+    </div>
+
+    <div class="field-row" id="calorie-fields" style="display:none;">
+      <div class="field" id="burned-field" style="display:none;">
+        <label>Kalori Terbakar (kcal)</label>
+        <input type="number" id="activity-burned" placeholder="0" inputmode="numeric">
+      </div>
+      <div class="field" id="consumed-field" style="display:none;">
+        <label>Kalori Masuk (kcal)</label>
+        <input type="number" id="activity-consumed" placeholder="0" inputmode="numeric">
+      </div>
+    </div>
+
+    <label>Sub-tugas</label>
+    <div id="subtask-inputs"></div>
+    <div class="add-subtask-btn" id="btn-add-subtask"><i class="ph ph-plus-circle"></i> Tambah sub-tugas</div>
+
+    <div class="quick-row" style="margin-top:18px;">
+      <button class="btn btn-ghost" id="btn-cancel-activity">Batal</button>
+      <button class="btn btn-danger" id="btn-delete-activity" style="display:none;"><i class="ph ph-trash"></i></button>
+      <button class="btn btn-accent" id="btn-save-activity" style="flex:2;"><i class="ph ph-check-circle"></i> Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: CONFIRM ═══ -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-sheet" style="max-width:360px; border-radius:26px; padding:22px 22px calc(22px + env(safe-area-inset-bottom));">
+    <div style="text-align:center;">
+      <i class="ph ph-warning-circle" style="font-size:34px; color:var(--danger);"></i>
+      <div class="sheet-title" style="justify-content:center; margin:10px 0 6px;" id="confirm-title">Yakin?</div>
+      <p style="font-size:12.5px; color:var(--text2); margin:0 0 18px;" id="confirm-body">Tindakan ini tidak bisa dibatalkan.</p>
+    </div>
+    <div class="quick-row">
+      <button class="btn btn-ghost" id="confirm-cancel">Batal</button>
+      <button class="btn btn-danger" id="confirm-ok">Ya, Lanjutkan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: PROYEK BARU (Goal Super-Planner) ═══ -->
+<div class="modal-overlay" id="project-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-rocket-launch"></i> Proyek Baru</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Ketik inisiatif/tujuan besarmu. AI akan merombaknya jadi struktur proyek lengkap dengan Tugas Terjadwal &amp; Kebiasaan Pendukung.</p>
+    </div>
+    <div class="field">
+      <label>Tujuan / Inisiatif</label>
+      <textarea id="project-goal-input" rows="4" placeholder="cth: Bangun tool flashcard web untuk belajar kanji dalam 3 minggu"></textarea>
+    </div>
+    <button class="btn btn-accent btn-block" id="btn-generate-project"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt</button>
+    <div class="field" style="margin-top:16px;">
+      <label>Tempel Hasil AI (JSON)</label>
+      <textarea id="project-paste-input" rows="6" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-project">Batal</button>
+      <button class="btn btn-accent" id="btn-process-project" style="flex:2;"><i class="ph ph-check-circle"></i> Proses &amp; Simpan Proyek</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: QUICK ENTRY — TEMPEL HASIL AI ═══ -->
+<div class="modal-overlay" id="quick-entry-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-lightning"></i> Kategorikan Tugas</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Prompt sudah disalin &amp; Gemini terbuka di tab baru. Tempel balasannya di bawah ini.</p>
+    </div>
+    <div class="field">
+      <label>Tempel Hasil AI (JSON)</label>
+      <textarea id="quick-paste-input" rows="5" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row">
+      <button class="btn btn-ghost" id="btn-cancel-quick-entry">Batal</button>
+      <button class="btn btn-accent" id="btn-process-quick-entry" style="flex:2;"><i class="ph ph-check-circle"></i> Tambahkan Tugas</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: TAMBAH JEJAK WAKTU (Manual Time-Log) ═══ -->
+<div class="modal-overlay" id="timelog-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-clock-clockwise"></i> Catat Aktivitas</div>
+    <div class="field">
+      <label>Aktivitas</label>
+      <input type="text" id="timelog-title" placeholder="cth: Push rank Mobile Legends">
+    </div>
+    <label>Kategori</label>
+    <div class="tag-select-grid" id="timelog-tag-grid"></div>
+    <div class="field">
+      <label>Durasi (menit)</label>
+      <input type="number" id="timelog-duration" placeholder="60" inputmode="numeric">
+    </div>
+    <div class="quick-row">
+      <button class="btn btn-ghost" id="btn-cancel-timelog">Batal</button>
+      <button class="btn btn-accent" id="btn-save-timelog" style="flex:2;"><i class="ph ph-check-circle"></i> Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: KEBIASAAN (Habit Engine) ═══ -->
+<div class="modal-overlay" id="habit-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-repeat"></i> <span id="habit-modal-title">Kebiasaan Baru</span></div>
+
+    <div class="field">
+      <label>Nama Kebiasaan</label>
+      <input type="text" id="habit-title" placeholder="cth: Minum air putih 2 liter">
+    </div>
+
+    <label>Frekuensi</label>
+    <div class="tag-select-grid" id="habit-freq-grid"></div>
+
+    <div class="field" id="habit-weekly-field" style="display:none;">
+      <label>Target per Minggu</label>
+      <input type="number" id="habit-weekly-target" placeholder="3" inputmode="numeric">
+    </div>
+
+    <div class="field" id="habit-days-field" style="display:none;">
+      <label>Hari Spesifik</label>
+      <div class="tag-select-grid" id="habit-days-grid"></div>
+    </div>
+
+    <label>Kategori Tag</label>
+    <div class="tag-select-grid" id="habit-tag-grid"></div>
+
+    <div class="field">
+      <label>Kaitkan ke Proyek (opsional)</label>
+      <select id="habit-project-select"></select>
+    </div>
+
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-habit">Batal</button>
+      <button class="btn btn-danger" id="btn-delete-habit" style="display:none;"><i class="ph ph-trash"></i></button>
+      <button class="btn btn-accent" id="btn-save-habit" style="flex:2;"><i class="ph ph-check-circle"></i> Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: KONTEKS AI (Contextual Auto-Habit) ═══ -->
+<div class="modal-overlay" id="context-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-sparkle"></i> Analisa Konteks AI</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Ceritakan identitas, lokasi, profesi, atau gaya hidupmu. AI akan menyarankan kebiasaan yang relevan &amp; spesifik — bukan template generik.</p>
+    </div>
+    <div class="field">
+      <label>Konteks Personal</label>
+      <textarea id="context-input" rows="4" placeholder="cth: Aku kerja di bidang kaigo (perawatan lansia) di Jepang, lagi belajar bahasa Jepang buat JLPT N3, tinggal sendirian di Shimada, Shizuoka"></textarea>
+    </div>
+    <button class="btn btn-accent btn-block" id="btn-generate-context"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt</button>
+    <div class="field" style="margin-top:16px;">
+      <label>Tempel Hasil AI (JSON)</label>
+      <textarea id="context-paste-input" rows="6" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-context">Batal</button>
+      <button class="btn btn-accent" id="btn-process-context" style="flex:2;"><i class="ph ph-check-circle"></i> Proses &amp; Tambahkan Kebiasaan</button>
+    </div>
+  </div>
+</div>
+
+<script src="./vendor/chartjs/chart.umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
