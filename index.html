@@ -190,6 +190,28 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
 .tblock-chevron{ color:var(--text3); font-size:16px; transition:transform var(--trans); flex-shrink:0; }
 .tblock.open .tblock-chevron{ transform:rotate(180deg); }
 
+.tblock.active-now {
+  border: 1.5px solid var(--accent-dark);
+  box-shadow: 0 0 14px var(--accent-soft);
+  position: relative;
+}
+.tblock.active-now::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 0; width: 4px;
+  background: var(--accent-dark);
+  animation: pulse-border 2.5s infinite;
+}
+@keyframes pulse-border {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+.tblock.active-now .tblock-time {
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+
 .tblock-body{ max-height:0; overflow:hidden; transition:max-height var(--trans); }
 .tblock.open .tblock-body{ max-height:600px; }
 .tblock-body-inner{ padding:0 16px 16px 16px; }
@@ -400,6 +422,10 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
 .project-body-inner{ padding:0 16px 16px; }
 .ptask-section-label{ font-size:10.5px; font-weight:800; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin:10px 2px 8px; }
 .ptask{ display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:7px; flex-wrap:wrap; }
+.ptask-info { flex:1; min-width:120px; display:flex; flex-direction:column; gap:2px; cursor:pointer; }
+.ptask-info .ptask-title { flex:none; min-width:0; width:100%; }
+.ptask-target { font-size: 10.5px; font-weight: 700; color: var(--text3); opacity: 0.8; display: flex; align-items: center; gap: 4px; transition: color var(--trans), text-shadow var(--trans), opacity var(--trans); }
+.ptask:hover .ptask-target, .ptask:focus-within .ptask-target { color: var(--accent-dark); opacity: 1; text-shadow: 0 0 8px var(--accent-soft); }
 .ptask-title{ font-size:13px; font-weight:600; flex:1; min-width:120px; cursor:pointer; overflow-wrap:break-word; }
 .ptask-title.done{ text-decoration:line-through; color:var(--text3); }
 .ptask-badges{ display:flex; gap:5px; flex-wrap:wrap; }
@@ -446,7 +472,25 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
 .journal-entry{ padding:15px; margin-bottom:12px; }
 .journal-date{ font-size:10.5px; font-weight:800; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
 .journal-text{ font-size:13px; line-height:1.7; color:var(--text); white-space:pre-wrap; }
-.journal-persona{ display:flex; gap:6px; margin-top:10px; }
+/* ═══ Choice Cards (Manual vs Prompt AI) ═══ */
+.choice-cards{ display:flex; flex-direction:column; gap:12px; margin-bottom:14px; }
+.choice-card{
+  display:flex; align-items:center; gap:14px; padding:15px 16px;
+  border-radius:var(--radius-md); background:var(--base); box-shadow:var(--el-sm);
+  border:none; cursor:pointer; text-align:left; transition:box-shadow var(--trans), transform var(--trans);
+  color:var(--text); width:100%;
+}
+.choice-card:active{ box-shadow:var(--in-sm); transform:scale(.98); }
+.choice-card-icon{
+  width:44px; height:44px; border-radius:14px; background:var(--base); box-shadow:var(--el-xs);
+  display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;
+  color:var(--accent-dark);
+}
+.choice-card.ai .choice-card-icon{ color:var(--gold); }
+.choice-card-info{ flex:1; min-width:0; }
+.choice-card-title{ font-family:var(--font-display); font-weight:700; font-size:15px; margin-bottom:2px; }
+.choice-card-desc{ font-size:12px; color:var(--text2); font-weight:500; line-height:1.4; }
+.choice-card-arrow{ color:var(--text3); font-size:18px; flex-shrink:0; }
 
 @media (max-width:340px){ .cat-grid{ grid-template-columns:repeat(2,1fr); } }
 </style>
@@ -474,15 +518,9 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
 
     <div class="greeting">
       <div class="greeting-hi" id="greeting-hi">Apa yang kamu kerjakan hari ini?</div>
-      <div class="greeting-sub" id="greeting-date">—</div>
+    <div class="greeting-sub" id="greeting-date">—</div>
     </div>
 
-    <div class="quick-entry">
-      <input type="text" id="quick-entry-input" placeholder="Catat tugas cepat... (cth: Belajar tata bahasa Jepang jam 7 malam)">
-      <button class="btn btn-icon" id="btn-quick-entry-send" aria-label="Kirim"><i class="ph-bold ph-paper-plane-tilt"></i></button>
-    </div>
-
-    <div id="scheduled-tasks-wrap"></div>
     <div class="tag-select-grid quick-filter-row" id="quick-tasks-filter"></div>
     <div id="quick-tasks-wrap"></div>
 
@@ -526,6 +564,8 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
 
     <div class="section-label"><span id="timeline-label">Linimasa</span><span class="line"></span></div>
     <div class="timeline" id="timeline"></div>
+
+    <div id="scheduled-tasks-wrap" style="margin-top: 24px;"></div>
 
   </div>
 
@@ -649,6 +689,17 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
     </div>
 
     <div class="settings-group">
+      <div class="settings-group-title">AI Super Batch Planner</div>
+      <div class="setting-row surface-el-sm" style="cursor:pointer;" id="btn-open-batch-planner">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Buat Rencana Jangka Panjang</div>
+          <div class="setting-row-sub">Generate rencana berhari-hari &amp; terhubung otomatis ke Proyek/Kebiasaan</div>
+        </div>
+        <i class="ph-bold ph-caret-right" style="color:var(--text3); font-size:18px;"></i>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <div class="settings-group-title">Local Data Rescue</div>
       <div class="setting-row surface-el-sm">
         <div class="setting-row-text">
@@ -671,6 +722,40 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
           <div class="setting-row-sub">Tindakan ini tidak bisa dibatalkan</div>
         </div>
         <button class="btn btn-icon btn-danger" id="btn-reset"><i class="ph ph-trash"></i></button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Akun Cloud &amp; Sinkronisasi Supabase</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title" id="cloud-account-title">Mode Offline</div>
+          <div class="setting-row-sub" id="cloud-account-sub">Data hanya tersimpan lokal di browser ini</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button class="btn btn-accent" id="btn-open-cloud-modal" style="font-size:12px; padding:7px 14px; gap:6px; display:inline-flex; align-items:center;">
+            <i class="ph ph-user-circle"></i> <span id="cloud-btn-label">Masuk</span>
+          </button>
+          <button class="btn btn-icon" id="btn-cloud-sync" title="Sinkronkan Sekarang" style="display:none;">
+            <i class="ph ph-arrows-clockwise"></i>
+          </button>
+          <button class="btn btn-icon btn-danger" id="btn-cloud-logout" title="Keluar Akun" style="display:none;">
+            <i class="ph ph-sign-out"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Integrasi Telegram Bot</div>
+      <div class="setting-row surface-el-sm">
+        <div class="setting-row-text">
+          <div class="setting-row-title">Telegram Bot (@SevnLifeBot)</div>
+          <div class="setting-row-sub" id="tg-pairing-sub">Sinkronisasi tugas, habit, pengingat, &amp; keuangan</div>
+        </div>
+        <button class="btn btn-accent" id="btn-open-tg-modal" style="font-size:12px; padding:7px 14px; gap:6px; display:inline-flex; align-items:center;">
+          <i class="ph ph-telegram-logo"></i> Hubungkan
+        </button>
       </div>
     </div>
 
@@ -735,6 +820,7 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
       </div>
     </div>
 
+
     <div class="field-row" id="calorie-fields" style="display:none;">
       <div class="field" id="burned-field" style="display:none;">
         <label>Kalori Terbakar (kcal)</label>
@@ -780,11 +866,36 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
     <div class="sheet-title"><i class="ph ph-rocket-launch"></i> Proyek Baru</div>
     <div class="hint-box">
       <i class="ph ph-sparkle"></i>
-      <p>Ketik inisiatif/tujuan besarmu. AI akan merombaknya jadi struktur proyek lengkap dengan Tugas Terjadwal &amp; Kebiasaan Pendukung.</p>
+      <p>Racik detail proyekmu di bawah ini. AI akan merombaknya jadi struktur proyek lengkap dengan Tugas Terjadwal &amp; Kebiasaan Pendukung.</p>
     </div>
     <div class="field">
-      <label>Tujuan / Inisiatif</label>
-      <textarea id="project-goal-input" rows="4" placeholder="cth: Bangun tool flashcard web untuk belajar kanji dalam 3 minggu"></textarea>
+      <label>Judul Proyek</label>
+      <input type="text" id="project-title-input" placeholder="cth: Belajar JLPT N3">
+    </div>
+    <div class="field">
+      <label>Tujuan / Output Spesifik</label>
+      <textarea id="project-details-input" rows="3" placeholder="Apa output spesifik yang ingin dicapai?"></textarea>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Batas Waktu (Hari)</label>
+        <input type="number" id="project-duration-input" placeholder="14" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label>Kapasitas (Jam/Hari)</label>
+        <input type="number" id="project-hours-input" placeholder="2" inputmode="numeric">
+      </div>
+    </div>
+    <div class="field">
+      <label>Kategori/Tags (Pilih satu/lebih)</label>
+      <select id="project-tags-input" multiple style="height: 110px;">
+        <option value="Tech">Tech / Coding</option>
+        <option value="Language">Language Learning</option>
+        <option value="Design">Design</option>
+        <option value="Health">Health & Fitness</option>
+        <option value="Business">Business</option>
+        <option value="Other">Lainnya</option>
+      </select>
     </div>
     <button class="btn btn-accent btn-block" id="btn-generate-project"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt</button>
     <div class="field" style="margin-top:16px;">
@@ -798,25 +909,6 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
   </div>
 </div>
 
-<!-- ═══ MODAL: QUICK ENTRY — TEMPEL HASIL AI ═══ -->
-<div class="modal-overlay" id="quick-entry-modal">
-  <div class="modal-sheet">
-    <div class="sheet-handle"></div>
-    <div class="sheet-title"><i class="ph ph-lightning"></i> Kategorikan Tugas</div>
-    <div class="hint-box">
-      <i class="ph ph-sparkle"></i>
-      <p>Prompt sudah disalin &amp; Gemini terbuka di tab baru. Tempel balasannya di bawah ini.</p>
-    </div>
-    <div class="field">
-      <label>Tempel Hasil AI (JSON)</label>
-      <textarea id="quick-paste-input" rows="5" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
-    </div>
-    <div class="quick-row">
-      <button class="btn btn-ghost" id="btn-cancel-quick-entry">Batal</button>
-      <button class="btn btn-accent" id="btn-process-quick-entry" style="flex:2;"><i class="ph ph-check-circle"></i> Tambahkan Tugas</button>
-    </div>
-  </div>
-</div>
 
 <!-- ═══ MODAL: TAMBAH JEJAK WAKTU (Manual Time-Log) ═══ -->
 <div class="modal-overlay" id="timelog-modal">
@@ -905,6 +997,219 @@ label{ font-size:12px; font-weight:700; color:var(--text2); text-transform:upper
   </div>
 </div>
 
+<!-- ═══ MODAL: CHOICE (Manual vs Prompt AI) ═══ -->
+<div class="modal-overlay" id="choice-modal">
+  <div class="modal-sheet" style="max-width:440px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="choice-modal-title"><i class="ph ph-plus-circle"></i> Tambah</div>
+    <div style="font-size:12.5px; color:var(--text2); margin:-8px 0 16px 2px;" id="choice-modal-sub">Pilih metode yang ingin digunakan:</div>
+    <div class="choice-cards">
+      <button class="choice-card" id="choice-btn-manual">
+        <div class="choice-card-icon"><i class="ph-bold ph-pencil-simple-line"></i></div>
+        <div class="choice-card-info">
+          <div class="choice-card-title" id="choice-manual-title">Versi Manual</div>
+          <div class="choice-card-desc" id="choice-manual-desc">Isi formulir secara mandiri langkah demi langkah.</div>
+        </div>
+        <i class="ph ph-caret-right choice-card-arrow"></i>
+      </button>
+      <button class="choice-card ai" id="choice-btn-ai">
+        <div class="choice-card-icon"><i class="ph-bold ph-sparkle"></i></div>
+        <div class="choice-card-info">
+          <div class="choice-card-title" id="choice-ai-title">Versi Prompt AI</div>
+          <div class="choice-card-desc" id="choice-ai-desc">Ketik ide singkat, AI Gemini menyusun format lengkapnya.</div>
+        </div>
+        <i class="ph ph-caret-right choice-card-arrow"></i>
+      </button>
+    </div>
+    <button class="btn btn-ghost btn-block" id="btn-cancel-choice">Batal</button>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AI ACTIVITY / SCHEDULE PROMPT ═══ -->
+<div class="modal-overlay" id="ai-activity-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-sparkle"></i> Susun Kegiatan Linimasa (AI)</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Tuliskan rencana kegiatanmu hari ini. AI akan merapikannya menjadi jadwal linimasa lengkap beserta kategori, jam, dan estimasi kalori.</p>
+    </div>
+    <div class="field">
+      <label>Rencana Kegiatan / Jadwal</label>
+      <textarea id="ai-activity-input" rows="4" placeholder="cth: 06:30-07:15 lari pagi 5km, 09:00-12:00 coding fitur AI, 12:30 makan siang ayam bakar, 19:00 belajar kanji"></textarea>
+    </div>
+    <button class="btn btn-accent btn-block" id="btn-generate-ai-activity"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt</button>
+    <div class="field" style="margin-top:16px;">
+      <label>Tempel Hasil AI (JSON)</label>
+      <textarea id="ai-activity-paste-input" rows="6" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-ai-activity">Batal</button>
+      <button class="btn btn-accent" id="btn-process-ai-activity" style="flex:2;"><i class="ph ph-check-circle"></i> Tambahkan ke Linimasa</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: PROYEK MANUAL ═══ -->
+<div class="modal-overlay" id="manual-project-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-kanban"></i> Buat Proyek (Manual)</div>
+    
+    <div class="field">
+      <label>Judul Proyek</label>
+      <input type="text" id="manual-project-title" placeholder="cth: Bangun Web Portofolio">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Tag Proyek</label>
+        <input type="text" id="manual-project-tag" placeholder="cth: #WebPorto">
+      </div>
+      <div class="field">
+        <label>Target Durasi (Hari)</label>
+        <input type="number" id="manual-project-days" placeholder="14" value="14" inputmode="numeric">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Daftar Tugas / Milestones (1 per baris)</label>
+      <textarea id="manual-project-tasks" rows="4" placeholder="Desain mockup UI di Figma&#10;Koding halaman beranda&#10;Implementasi database &amp; API&#10;Testing &amp; Deploy"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Kebiasaan Pendukung (opsional, 1 per baris)</label>
+      <textarea id="manual-project-habits" rows="2" placeholder="Coding 1 jam sehari&#10;Review progress setiap malam"></textarea>
+    </div>
+
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-manual-project">Batal</button>
+      <button class="btn btn-accent" id="btn-save-manual-project" style="flex:2;"><i class="ph ph-check-circle"></i> Simpan Proyek</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AI TIMELOG (Jejak Waktu AI) ═══ -->
+<div class="modal-overlay" id="ai-timelog-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-sparkle"></i> Catat Jejak Waktu (AI)</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Ceritakan apa saja yang sudah kamu kerjakan hari ini. AI akan merapikannya menjadi catatan durasi waktu per kategori secara otomatis.</p>
+    </div>
+    <div class="field">
+      <label>Aktivitas yang Dilakukan</label>
+      <textarea id="ai-timelog-input" rows="4" placeholder="cth: Tadi pagi 3 jam coding fitur baru, siang makan siang 45 menit, sore 1 jam meeting evaluasi"></textarea>
+    </div>
+    <button class="btn btn-accent btn-block" id="btn-generate-ai-timelog"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt</button>
+    <div class="field" style="margin-top:16px;">
+      <label>Tempel Hasil AI (JSON)</label>
+      <textarea id="ai-timelog-paste-input" rows="5" placeholder="Tempel hasil JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-ai-timelog">Batal</button>
+      <button class="btn btn-accent" id="btn-process-ai-timelog" style="flex:2;"><i class="ph ph-check-circle"></i> Simpan Jejak Waktu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AI SUPER BATCH PLANNER ═══ -->
+<div class="modal-overlay" id="batch-plan-modal">
+  <div class="modal-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-calendar-star"></i> AI Super Batch Planner</div>
+    <div class="hint-box">
+      <i class="ph ph-sparkle"></i>
+      <p>Ketik tujuan besarmu (misal: "Siapkan rilis aplikasi dalam 1 minggu"). AI akan membuat rencana komprehensif lengkap dengan Proyek, Kebiasaan, dan Linimasa Harian dalam satu JSON.</p>
+    </div>
+    <div class="field">
+      <label>Ide Rencana / Tujuan Besar</label>
+      <textarea id="batch-plan-input" rows="4" placeholder="cth: Rencana belajar fullstack development selama 3 minggu, termasuk proyek portofolio, habit coding tiap malam..."></textarea>
+    </div>
+    <button class="btn btn-accent btn-block" id="btn-generate-batch-plan"><i class="ph ph-magic-wand"></i> Generate &amp; Salin Prompt Super</button>
+    <div class="field" style="margin-top:16px;">
+      <label>Tempel Hasil AI (Master JSON)</label>
+      <textarea id="batch-plan-paste-input" rows="5" placeholder="Tempel master JSON dari AI di sini..."></textarea>
+    </div>
+    <div class="quick-row" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-cancel-batch-plan">Batal</button>
+      <button class="btn btn-accent" id="btn-process-batch-plan" style="flex:2;"><i class="ph ph-check-circle"></i> Eksekusi Rencana</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: TELEGRAM PAIRING ═══ -->
+<div class="modal-overlay" id="tg-modal">
+  <div class="modal-sheet" style="max-width:380px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-telegram-logo" style="color:var(--accent-dark);"></i> Integrasi Telegram Bot</div>
+    <p style="font-size:12.5px; color:var(--text2); line-height:1.5; margin:0 0 16px;">
+      Hubungkan akun SevnLife OS Anda ke <strong>@SevnLifeBot</strong> untuk menerima notifikasi pengingat otomatis dan mencatat aktivitas via Telegram.
+    </p>
+
+    <div class="field" style="text-align:center;">
+      <label style="text-align:center; margin-bottom:8px;">Kode Pairing (Berlaku 15 Menit)</label>
+      <div id="tg-pairing-code-display" style="font-family:var(--font-display); font-size:26px; font-weight:800; letter-spacing:5px; color:var(--accent-dark); padding:12px; background:var(--base); box-shadow:var(--in-sm); border-radius:var(--radius-md); user-select:all;">
+        ------
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">
+      <a id="btn-tg-direct-link" href="https://t.me/SevnLifeBot" target="_blank" rel="noopener" class="btn btn-accent" style="text-decoration:none; justify-content:center; display:flex; align-items:center; gap:8px;">
+        <i class="ph-bold ph-paper-plane-tilt"></i> Buka @SevnLifeBot di Telegram
+      </a>
+      <button class="btn btn-ghost" id="btn-copy-pairing-cmd" style="justify-content:center; font-size:12px;">
+        <i class="ph ph-copy"></i> Salin Perintah (/pair KODE)
+      </button>
+      <button class="btn btn-ghost" id="btn-close-tg-modal" style="justify-content:center;">Tutup</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: CLOUD AUTH (Supabase) ═══ -->
+<div class="modal-overlay" id="cloud-modal">
+  <div class="modal-sheet" style="max-width:380px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><i class="ph ph-cloud-check" style="color:var(--accent-dark);"></i> Akun Cloud SevnLife</div>
+    <p style="font-size:12.5px; color:var(--text2); line-height:1.5; margin:0 0 14px;">
+      Masuk atau daftar untuk sinkronisasi tugas, habit, dan pengingat secara otomatis dengan <strong>@SevnLifeBot</strong>.
+    </p>
+
+    <div class="choice-cards" style="margin-bottom:14px;">
+      <div style="display:flex; background:var(--base); box-shadow:var(--in-sm); border-radius:var(--radius-pill); padding:4px;">
+        <button type="button" id="tab-cloud-login" style="flex:1; border:none; background:var(--base); box-shadow:var(--el-xs); color:var(--accent-dark); padding:8px; border-radius:var(--radius-pill); font-size:13px; font-weight:700; cursor:pointer;">Masuk</button>
+        <button type="button" id="tab-cloud-register" style="flex:1; border:none; background:transparent; box-shadow:none; color:var(--text2); padding:8px; border-radius:var(--radius-pill); font-size:13px; font-weight:700; cursor:pointer;">Daftar Baru</button>
+      </div>
+    </div>
+
+    <div class="field" id="cloud-name-field" style="display:none;">
+      <label>Nama Lengkap</label>
+      <input type="text" id="cloud-name-input" placeholder="cth: Budi Pratama">
+    </div>
+
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="cloud-email-input" placeholder="nama@email.com">
+    </div>
+
+    <div class="field">
+      <label>Kata Sandi (Password)</label>
+      <input type="password" id="cloud-password-input" placeholder="Minimal 6 karakter">
+    </div>
+
+    <div id="cloud-auth-error" style="font-size:12px; color:var(--danger); margin-bottom:10px; display:none;"></div>
+
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">
+      <button class="btn btn-accent btn-block" id="btn-submit-cloud-auth" style="justify-content:center; padding:11px;">
+        <i class="ph ph-sign-in"></i> <span id="cloud-submit-label">Masuk ke Akun Cloud</span>
+      </button>
+      <button class="btn btn-ghost" id="btn-close-cloud-modal" style="justify-content:center;">Batal</button>
+    </div>
+  </div>
+</div>
+
+<script src="./vendor/supabase/supabase.js"></script>
 <script src="./vendor/chartjs/chart.umd.js"></script>
 <script src="app.js"></script>
 </body>

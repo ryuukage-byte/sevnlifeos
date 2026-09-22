@@ -59,6 +59,21 @@ const LS_TIMELOG = 'sevn_timelog';
 const LS_JOURNAL = 'sevn_journal';
 const LS_SETTINGS = 'sevn_settings';
 
+/* ── SUPABASE CLOUD CONFIG ─────────────────── */
+const SUPABASE_URL = 'https://ioyynmbdvffltuwkoefi.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveXlubWJkdmZmbHR1d2tvZWZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDg2NDAsImV4cCI6MjEwNTYyNDY0MH0.5NQAngNXthqXLNRu3I4ptJrKc3zUYfiFfcyf1V7Z2EE';
+
+let sb = null;
+function initSupabase() {
+  if (typeof window !== 'undefined' && window.supabase && window.supabase.createClient) {
+    try {
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (e) {
+      console.warn('Supabase client init error:', e);
+    }
+  }
+}
+
 const LS = {
   get: (k, fallback) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fallback : v; } catch { return fallback; } },
   set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
@@ -73,6 +88,11 @@ let state = {
   timelog: LS.get(LS_TIMELOG, []),
   journal: LS.get(LS_JOURNAL, []),
   settings: LS.get(LS_SETTINGS, { theme: 'light', userName: 'Sevn', reminderEnabled: false, reminderTime: '20:00', reminderFiredDate: null }),
+
+  cloudUser: null,
+  cloudProfile: null,
+  isSyncing: false,
+  authTab: 'login',
 
   viewDate: todayStr(),
   openBlockId: null,
@@ -96,6 +116,7 @@ let state = {
   selectedHabitTag: 'Productivity',
 };
 
+function save()         { LS.set(LS_KEY, state.activities); }
 function saveTasks()    { LS.set(LS_TASKS, state.tasks); }
 function saveProjects() { LS.set(LS_PROJECTS, state.projects); }
 function saveHabits()   { LS.set(LS_HABITS, state.habits); }
@@ -261,7 +282,11 @@ function toggleDarkMode() {
 /* ── GREETING ───────────────────────────────── */
 function renderGreeting() {
   const dateEl = document.getElementById('greeting-date');
-  if (dateEl) dateEl.textContent = fmtDateSub(todayStr());
+  const now = new Date();
+  const hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  if (dateEl) {
+    dateEl.innerHTML = fmtDateSub(todayStr()) + " &nbsp;�&nbsp; <i class='ph ph-clock'></i> " + hm;
+  }
   const hiEl = document.getElementById('greeting-hi');
   const name = (state.settings.userName || '').trim();
   if (hiEl) hiEl.textContent = name ? `Apa yang kamu kerjakan hari ini, ${name}?` : 'Apa yang kamu kerjakan hari ini?';
@@ -317,62 +342,9 @@ function renderDateNav() {
   document.getElementById('timeline-label').textContent =
     state.viewDate === todayStr() ? 'Linimasa Hari Ini' : `Linimasa · ${fmtDateSub(state.viewDate)}`;
   renderQuickTasks();
+  if (typeof renderHomeHabits === 'function') renderHomeHabits();
 }
 
-/* ── QUICK DAILY ENTRY ─────────────────────── */
-function buildQuickPrompt(text) {
-  const tagList = Object.keys(BASE_TAGS).map(k => BASE_TAGS[k].label).join(', ');
-  const projectTags = state.projects.map(p => p.tag).join(', ') || '(tidak ada proyek aktif)';
-  return `Analisa kalimat tugas berikut: "${text}"
-
-DAFTAR PROYEK/GOAL AKTIF SAAT INI: [${projectTags}]
-
-Tentukan:
-1. Judul tugas yang ringkas.
-2. Kategori tag — jika tugas ini berkaitan langsung dengan salah satu PROYEK AKTIF di atas, pilih tag proyek tersebut PERSIS. Jika tidak, PILIH SALAH SATU PERSIS dari kategori dasar ini: [${tagList}]
-3. Jika ada estimasi durasi disebutkan, ekstrak dalam MENIT saja (angka). Jika tidak ada, null.
-4. Jika ada jam spesifik disebutkan (mis. "jam 7 malam"), ekstrak sebagai "HH:MM" format 24 jam. Jika tidak ada, null.
-
-Kembalikan HANYA format JSON valid berikut, tanpa penjelasan tambahan:
-{"title": "...", "tag": "salah satu dari daftar kategori ATAU tag proyek aktif", "estimatedMinutes": angka_atau_null, "timeHint": "HH:MM_atau_null"}`;
-}
-
-function sendQuickEntry() {
-  const input = document.getElementById('quick-entry-input');
-  const text = input.value.trim();
-  if (!text) { showToast('Ketik tugas dulu', 'error'); return; }
-  copyToClipboard(buildQuickPrompt(text));
-  openGemini();
-  openModal('quick-entry-modal');
-  showToast('Prompt disalin & Gemini dibuka — tempel balasannya di sini');
-}
-
-function processQuickEntryPaste() {
-  const raw = document.getElementById('quick-paste-input').value;
-  if (!raw.trim()) { showToast('Tempel hasil AI dulu', 'error'); return; }
-  let data;
-  try { data = extractJSON(raw); } catch { showToast('Gagal memproses JSON', 'error'); return; }
-  const items = Array.isArray(data) ? data : [data];
-  let count = 0;
-  items.forEach(it => {
-    if (!it || !it.title) return;
-    const tag = resolveAnyTag(it.tag);
-    state.tasks.push({
-      id: genId('task'), date: state.viewDate, title: String(it.title).trim(), tag,
-      estimatedMinutes: Number(it.estimatedMinutes) || null, timeHint: it.timeHint || null,
-      projectId: null, phaseLabel: null, durationLabel: null, isHabit: false, isDone: false,
-      createdAt: new Date().toISOString(),
-    });
-    count++;
-  });
-  if (!count) { showToast('Tidak ada tugas terdeteksi di JSON', 'error'); return; }
-  saveTasks();
-  closeModal('quick-entry-modal');
-  document.getElementById('quick-entry-input').value = '';
-  document.getElementById('quick-paste-input').value = '';
-  renderQuickTasks();
-  showToast(`${count} tugas ditambahkan`);
-}
 
 // Shared schedule badge for a project task — used on both the Beranda
 // "Terjadwal dari Proyek" section and the Project accordion, so an overdue
@@ -407,34 +379,10 @@ function rescheduleTaskToToday(id) {
   showToast('Tugas digeser ke hari ini');
 }
 
-function renderScheduledToday() {
-  const wrap = document.getElementById('scheduled-tasks-wrap');
-  if (!wrap) return;
-  const v = state.viewDate;
-  const isToday = v === todayStr();
-  const list = state.tasks.filter(t => {
-    if (!t.projectId || !t.scheduleStart) return false;
-    if (t.scheduleStart <= v && v <= t.scheduleEnd) return true;
-    return isToday && isTaskOverdue(t); // slipped tasks bleed into "today" until handled
-  });
-  if (!list.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div class="section-label"><span>Terjadwal dari Proyek</span><span class="line"></span></div>` +
-    list.map(t => {
-      const proj = state.projects.find(p => p.id === t.projectId);
-      return `<div class="ptask surface-el-sm" style="margin-bottom:9px;">
-        <div class="subtask-check ${t.isDone ? 'done' : ''}" data-ptask-toggle="${t.id}"><i class="ph-bold ph-check"></i></div>
-        <div class="ptask-title ${t.isDone ? 'done' : ''}" data-ptask-toggle="${t.id}">${esc(t.title)}</div>
-        <div class="ptask-badges">
-          ${proj ? `<span class="tag-chip project"><i class="ph ph-rocket-launch"></i> ${esc(proj.title)}</span>` : ''}
-          ${taskScheduleBadge(t)}
-          ${t.durationLabel ? `<span class="badge">${esc(t.durationLabel)}</span>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-}
+
 
 function renderQuickTasks() {
-  renderScheduledToday();
+
   const wrap = document.getElementById('quick-tasks-wrap');
   const filterWrap = document.getElementById('quick-tasks-filter');
   if (!wrap) return;
@@ -461,7 +409,10 @@ function renderQuickTasks() {
       const tagInfo = getTagInfo(t.tag);
       return `<div class="ptask surface-el-sm" style="margin-bottom:9px;">
         <div class="subtask-check ${t.isDone ? 'done' : ''}" data-qtask-toggle="${t.id}"><i class="ph-bold ph-check"></i></div>
-        <div class="ptask-title ${t.isDone ? 'done' : ''}" data-qtask-toggle="${t.id}">${esc(t.title)}</div>
+        <div class="ptask-info" data-qtask-toggle="${t.id}">
+          <div class="ptask-title ${t.isDone ? 'done' : ''}">${esc(t.title)}</div>
+          ${t.dailyTarget ? `<div class="ptask-target"><i class="ph-bold ph-target"></i> ${esc(t.dailyTarget)}</div>` : ''}
+        </div>
         <div class="ptask-badges">
           <span class="tag-chip ${tagInfo.isProject ? 'project' : ''}"><i class="ph ${tagInfo.icon}"></i> ${esc(tagInfo.label)}</span>
           ${t.estimatedMinutes ? `<span class="badge">${fmtDuration(t.estimatedMinutes)}</span>` : ''}
@@ -477,6 +428,13 @@ function toggleQuickTask(id) {
   if (task.isDone) autoSyncTaskToTimelog(task);
   saveTasks();
   renderQuickTasks();
+
+  if (state.cloudUser && sb && task.cloud_id) {
+    sb.from('tasks').update({
+      status: task.isDone ? 'done' : 'todo',
+      completed_at: task.isDone ? new Date().toISOString() : null
+    }).eq('id', task.cloud_id).then();
+  }
 }
 
 function goToPage(page) {
@@ -496,29 +454,64 @@ function getDayActivities(dateStr) {
     .sort((a,b) => (a.timeStart || '').localeCompare(b.timeStart || ''));
 }
 
+function isActivityActiveNow(a) {
+  if (state.viewDate !== todayStr()) return false;
+  if (!a.timeStart || !a.timeEnd) return false;
+  const now = new Date();
+  const hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  if (a.timeStart <= a.timeEnd) {
+    return hm >= a.timeStart && hm <= a.timeEnd;
+  } else {
+    return hm >= a.timeStart || hm <= a.timeEnd;
+  }
+}
+
 function renderTimeline() {
   const list = getDayActivities(state.viewDate);
   const wrap = document.getElementById('timeline');
+  let html = '';
 
-  if (!list.length) {
-    wrap.innerHTML = `<div class="empty-state"><i class="ph ph-coffee"></i><p>Belum ada kegiatan. Ketuk tombol + untuk menambahkan.</p></div>`;
-    renderProgress(list);
-    return;
+  const v = state.viewDate;
+  const isToday = v === todayStr();
+  const projTasks = state.tasks.filter(t => {
+    if (!t.projectId || !t.scheduleStart) return false;
+    if (t.scheduleStart <= v && v <= t.scheduleEnd) return true;
+    return isToday && isTaskOverdue(t);
+  });
+
+  if (projTasks.length) {
+    html += projTasks.map(t => {
+      const proj = state.projects.find(p => p.id === t.projectId);
+      return `<div class="ptask surface-el-sm" style="margin-bottom:12px; margin-left:-4px; border:1px solid var(--accent-soft);">
+        <div class="subtask-check ${t.isDone ? 'done' : ''}" data-ptask-toggle="${t.id}"><i class="ph-bold ph-check"></i></div>
+        <div class="ptask-info" data-ptask-toggle="${t.id}">
+          <div class="ptask-title ${t.isDone ? 'done' : ''}">${esc(t.title)}</div>
+          ${t.dailyTarget ? `<div class="ptask-target"><i class="ph-bold ph-target"></i> ${esc(t.dailyTarget)}</div>` : ''}
+        </div>
+        <div class="ptask-badges">
+          ${proj ? `<span class="tag-chip project"><i class="ph ph-rocket-launch"></i> ${esc(proj.title)}</span>` : ''}
+          ${taskScheduleBadge(t)}
+          ${t.durationLabel ? `<span class="badge">${esc(t.durationLabel)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
   }
 
-  wrap.innerHTML = list.map(a => {
-    const cat = CATEGORIES[a.category] || CATEGORIES['Lainnya'];
-    const total = a.subTasks?.length || 0;
-    const done = a.subTasks?.filter(s => s.isDone).length || 0;
-    const allDone = total > 0 && done === total;
-    const isOpen = state.openBlockId === a.id;
-    const metaBits = [];
-    if (a.caloriesBurned) metaBits.push(`<i class="ph ph-fire"></i> ${a.caloriesBurned} kcal`);
-    if (a.caloriesConsumed) metaBits.push(`<i class="ph ph-bowl-food"></i> ${a.caloriesConsumed} kcal`);
-    if (total) metaBits.push(`<i class="ph ph-list-checks"></i> ${done}/${total}`);
+  if (list.length) {
+    html += list.map(a => {
+      const cat = CATEGORIES[a.category] || CATEGORIES['Lainnya'];
+      const total = a.subTasks?.length || 0;
+      const done = a.subTasks?.filter(s => s.isDone).length || 0;
+      const allDone = total > 0 && done === total;
+      const isOpen = state.openBlockId === a.id;
+      const metaBits = [];
+      if (a.caloriesBurned) metaBits.push(`<i class="ph ph-fire"></i> ${a.caloriesBurned} kcal`);
+      if (a.caloriesConsumed) metaBits.push(`<i class="ph ph-bowl-food"></i> ${a.caloriesConsumed} kcal`);
+      if (total) metaBits.push(`<i class="ph ph-list-checks"></i> ${done}/${total}`);
+      const isActiveNow = typeof isActivityActiveNow === 'function' ? isActivityActiveNow(a) : false;
 
-    return `
-    <div class="tblock surface-el ${isOpen ? 'open' : ''}" data-id="${a.id}">
+      return `
+    <div class="tblock surface-el ${isOpen ? 'open' : ''} ${isActiveNow ? 'active-now' : ''}" data-id="${a.id}">
       <div class="tblock-head" data-toggle="${a.id}">
         <div class="tblock-icon"><i class="ph ${cat.icon}"></i></div>
         <div class="tblock-info">
@@ -542,7 +535,14 @@ function renderTimeline() {
         </div>
       </div>
     </div>`;
-  }).join('');
+    }).join('');
+  }
+
+  if (!html) {
+    wrap.innerHTML = `<div class="empty-state"><i class="ph ph-coffee"></i><p>Belum ada jadwal. Ketuk tombol + untuk menambahkan.</p></div>`;
+  } else {
+    wrap.innerHTML = html;
+  }
 
   renderProgress(list);
 }
@@ -731,46 +731,317 @@ function confirmDialog(title, body, onOk) {
   openModal('confirm-modal');
 }
 
-/* ── PROJECTS (Goal Super-Planner + Accordion UI) ── */
-function buildProjectPrompt(goalText) {
-  return `Kamu adalah asisten perencana proyek. Pecah tujuan/inisiatif berikut menjadi struktur proyek yang matang, TERMASUK penjadwalan tiap tugas:
-"${goalText}"
+/* ── CHOICE MODAL (Manual vs Prompt AI) ────── */
+let currentChoiceConfig = null;
 
-Kembalikan HANYA format JSON valid berikut, tanpa penjelasan tambahan:
+function openChoiceModal(config) {
+  currentChoiceConfig = config;
+  const titleEl = document.getElementById('choice-modal-title');
+  if (titleEl) titleEl.innerHTML = `<i class="ph ${config.titleIcon || 'ph-plus-circle'}"></i> ${config.title}`;
+  const subEl = document.getElementById('choice-modal-sub');
+  if (subEl) subEl.textContent = config.subtitle || 'Pilih metode yang ingin digunakan:';
+  const mTitle = document.getElementById('choice-manual-title');
+  if (mTitle) mTitle.textContent = config.manualTitle || 'Versi Manual';
+  const mDesc = document.getElementById('choice-manual-desc');
+  if (mDesc) mDesc.textContent = config.manualDesc || 'Isi formulir secara mandiri langkah demi langkah.';
+  const aTitle = document.getElementById('choice-ai-title');
+  if (aTitle) aTitle.textContent = config.aiTitle || 'Versi Prompt AI';
+  const aDesc = document.getElementById('choice-ai-desc');
+  if (aDesc) aDesc.textContent = config.aiDesc || 'Ketik ide singkat, AI Gemini menyusun format lengkapnya.';
+  openModal('choice-modal');
+}
+
+/* ── AI ACTIVITY / SCHEDULE GENERATOR ──────── */
+function buildAiActivityPrompt(text, dateStr) {
+  const catList = Object.keys(CATEGORIES).join(', ');
+  return `Kamu adalah asisten penjadwalan harian. Susun rencana kegiatan berikut untuk tanggal ${dateStr} menjadi daftar kegiatan linimasa yang rapi:
+"${text}"
+
+DAFTAR KATEGORI VALID (PILIH SALAH SATU PERSIS): [${catList}]
+
+Kembalikan HANYA format JSON valid berikut (array of objects), tanpa penjelasan tambahan:
+[
+  {
+    "title": "judul kegiatan singkat",
+    "category": "salah satu kategori di atas",
+    "timeStart": "HH:MM (format 24 jam)",
+    "timeEnd": "HH:MM (format 24 jam)",
+    "burnedCalories": 0,
+    "consumedCalories": 0,
+    "subTasks": ["sub-tugas 1", "sub-tugas 2"]
+  }
+]`;
+}
+
+function openAiActivityModal() {
+  document.getElementById('ai-activity-input').value = '';
+  document.getElementById('ai-activity-paste-input').value = '';
+  openModal('ai-activity-modal');
+}
+
+function generateAiActivityPrompt() {
+  const text = document.getElementById('ai-activity-input').value.trim();
+  if (!text) { showToast('Ketik rencana kegiatan dulu', 'error'); return; }
+  copyToClipboard(buildAiActivityPrompt(text, state.viewDate));
+  openGemini();
+  showToast('Prompt disalin & Gemini dibuka — tempel hasilnya di bawah');
+}
+
+function processAiActivityPaste() {
+  const raw = document.getElementById('ai-activity-paste-input').value;
+  if (!raw.trim()) { showToast('Tempel hasil AI dulu', 'error'); return; }
+  
+  let items = [];
+  try {
+    const parsed = extractJSON(raw);
+    items = Array.isArray(parsed) ? parsed : (parsed.activities || [parsed]);
+  } catch (e) {
+    const lines = raw.split('\n');
+    let curDate = state.viewDate;
+    let count = 0;
+    lines.forEach(l => {
+      const dateMatch = l.match(/===\s*(\d{4}-\d{2}-\d{2})\s*===/);
+      if (dateMatch) { curDate = dateMatch[1]; return; }
+      const actMatch = l.match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s+(.*?)(?:\s*\[(.*?)\])?$/);
+      if (actMatch) {
+        const cat = CATEGORIES[actMatch[4]] ? actMatch[4] : 'Lainnya';
+        state.activities.push({
+          id: genId('act'),
+          date: curDate,
+          timeStart: actMatch[1].padStart(5, '0'),
+          timeEnd: actMatch[2].padStart(5, '0'),
+          category: cat,
+          title: actMatch[3].trim(),
+          caloriesBurned: 0,
+          caloriesConsumed: 0,
+          subTasks: []
+        });
+        count++;
+      }
+    });
+    if (count > 0) {
+      save();
+      closeModal('ai-activity-modal');
+      renderTimeline();
+      showToast(`${count} kegiatan ditambahkan ke linimasa`);
+      return;
+    }
+    showToast('Gagal memproses format JSON / Jadwal', 'error');
+    return;
+  }
+
+  let count = 0;
+  items.forEach(it => {
+    if (!it || !it.title) return;
+    const cat = CATEGORIES[it.category] ? it.category : (it.category ? resolveAnyTag(it.category) : 'Lainnya');
+    const cleanCat = CATEGORIES[cat] ? cat : 'Lainnya';
+    const subTasks = Array.isArray(it.subTasks) 
+      ? it.subTasks.map(s => typeof s === 'string' ? { id: genId('sub'), title: s.trim(), isDone: false } : { id: genId('sub'), title: (s.title||'').trim(), isDone: !!s.isDone }).filter(s => s.title)
+      : [];
+
+    state.activities.push({
+      id: genId('act'),
+      date: it.date || state.viewDate,
+      timeStart: (it.timeStart || '08:00').padStart(5, '0'),
+      timeEnd: (it.timeEnd || '09:00').padStart(5, '0'),
+      category: cleanCat,
+      title: String(it.title).trim(),
+      caloriesBurned: Number(it.burnedCalories) || Number(it.caloriesBurned) || 0,
+      caloriesConsumed: Number(it.consumedCalories) || Number(it.caloriesConsumed) || 0,
+      subTasks,
+    });
+    count++;
+  });
+
+  if (!count) { showToast('Tidak ada kegiatan terdeteksi', 'error'); return; }
+  save();
+  closeModal('ai-activity-modal');
+  renderTimeline();
+  showToast(`${count} kegiatan ditambahkan ke linimasa`);
+}
+
+/* ── MANUAL PROJECT CREATION ───────────────── */
+function openManualProjectModal() {
+  document.getElementById('manual-project-title').value = '';
+  document.getElementById('manual-project-tag').value = '';
+  document.getElementById('manual-project-days').value = '14';
+  document.getElementById('manual-project-tasks').value = '';
+  document.getElementById('manual-project-habits').value = '';
+  openModal('manual-project-modal');
+}
+
+function saveManualProject() {
+  const title = document.getElementById('manual-project-title').value.trim();
+  if (!title) { showToast('Judul proyek wajib diisi', 'error'); return; }
+
+  let tag = document.getElementById('manual-project-tag').value.trim();
+  if (!tag) tag = '#' + title.replace(/\s+/g, '');
+  if (!tag.startsWith('#')) tag = '#' + tag;
+
+  const days = Math.max(1, parseInt(document.getElementById('manual-project-days').value, 10) || 14);
+  const projectId = genId('proj');
+  const startDate = todayStr();
+  const targetCompletionDate = addDays(startDate, days - 1);
+
+  state.projects.push({
+    id: projectId,
+    title,
+    tag,
+    startDate,
+    targetCompletionDate,
+    createdAt: new Date().toISOString()
+  });
+
+  const taskLines = document.getElementById('manual-project-tasks').value.split('\n').map(l => l.replace(/^[-*•\d.]+\s*/, '').trim()).filter(Boolean);
+  const habitLines = document.getElementById('manual-project-habits').value.split('\n').map(l => l.replace(/^[-*•\d.]+\s*/, '').trim()).filter(Boolean);
+
+  let count = 0;
+  const numTasks = taskLines.length;
+  taskLines.forEach((tTitle, idx) => {
+    const dayStart = Math.min(days, Math.floor((idx / Math.max(1, numTasks)) * days) + 1);
+    const dayEnd = Math.min(days, Math.floor(((idx + 1) / Math.max(1, numTasks)) * days) + 1);
+    const sDate = addDays(startDate, dayStart - 1);
+    const eDate = addDays(startDate, dayEnd - 1);
+
+    state.tasks.push({
+      id: genId('task'),
+      date: eDate,
+      title: tTitle,
+      tag,
+      projectId,
+      phaseLabel: 'Tugas Proyek',
+      durationLabel: null,
+      scheduleStart: sDate,
+      scheduleEnd: eDate,
+      isHabit: false,
+      isDone: false,
+      estimatedMinutes: null,
+      timeHint: null,
+      createdAt: new Date().toISOString()
+    });
+    count++;
+  });
+
+  habitLines.forEach(hTitle => {
+    state.habits.push({
+      id: genId('habit'),
+      title: hTitle,
+      tag,
+      projectId,
+      frequency: 'daily',
+      weeklyTarget: null,
+      days: [],
+      completions: {},
+      createdAt: new Date().toISOString()
+    });
+    count++;
+  });
+
+  saveProjects();
+  saveTasks();
+  saveHabits();
+  closeModal('manual-project-modal');
+  state.openProjectId = projectId;
+  renderProjects();
+  showToast('Proyek berhasil dibuat');
+}
+
+/* ── PROJECTS (Goal Super-Planner + Accordion UI) ── */
+function buildProjectPrompt(data) {
+  let additionalRules = '';
+  const tagsStr = data.tags.join(', ');
+  
+  if (tagsStr.includes('Language')) {
+    additionalRules += `\n- Aturan Khusus Language: Wajib memecah tugas menjadi metrik penguasaan kosakata, tata bahasa, dan latihan membaca/mendengar.`;
+  }
+  if (tagsStr.includes('Coding') || tagsStr.includes('Tech')) {
+    additionalRules += `\n- Aturan Khusus Tech/Coding: Wajib menyertakan fase setup environment, milestone prototyping, dan fase testing/debugging.`;
+  }
+
+  return `Kamu adalah asisten perencana proyek. Pecah inisiatif berikut menjadi struktur proyek yang matang dan terukur.
+
+DATA PROYEK:
+- Judul: ${data.title}
+- Tujuan/Konteks: ${data.description}
+- Batas Waktu: ${data.durationDays} hari
+- Kategori/Tags: ${tagsStr}
+- Kapasitas Harian: ${data.dailyHours} jam/hari
+
+ATURAN PENJADWALAN & OUTPUT (WAJIB DIIKUTI 100%):
+1. Kembalikan HANYA format JSON valid sesuai skema di bawah, TANPA blok markdown, TANPA penjelasan teks apa pun.
+2. Buat 2-4 fase ("phases") berurutan, masing-masing berisi 2-5 tugas ("tasks").
+3. "day_range" tiap tugas adalah rentang hari eksekusi (format "Mulai-Selesai", hari ke-1 = mulai proyek). Harus logis, berurutan, dan muat dalam batas ${data.durationDays} hari.
+4. "daily_target": Jika tugas memakan waktu lebih dari 1 hari, WAJIB lakukan kalkulasi matematis membagi total materi dengan durasi hari pada day_range, dan tetapkan beban kerja harian. Jangan beri deskripsi umum! WAJIB kembalikan format pasti seperti '15 Kanji & 40 Kotoba' atau '2 wacana Dokkai'. Jika hanya 1 hari, isi null.
+5. "habits": Buat 1-4 kebiasaan pendukung. "frequency" HARUS "Daily" ATAU "Weekly:N" (N=angka).${additionalRules}
+
+SKEMA JSON WAJIB:
 {
-  "project_title": "judul proyek singkat",
-  "project_tag": "#TagProyek (PascalCase, tanpa spasi)",
-  "duration_days": angka_total_hari_proyek,
+  "project_title": "string",
+  "project_tag": "string (PascalCase, satu tag utama)",
+  "duration_days": number,
   "phases": [
-    { "phase_label": "Fase 1", "tasks": [
-        {"title": "nama tugas", "duration_label": "2 jam", "day_range": "1-3"}
+    {
+      "phase_label": "string",
+      "tasks": [
+        {
+          "title": "string",
+          "daily_target": "string atau null",
+          "duration_label": "string (contoh: '2 jam/hari')",
+          "day_range": "string (contoh: '1-7')"
+        }
       ]
     }
   ],
   "habits": [
-    {"title": "kebiasaan pendukung yang relevan", "frequency": "Daily"},
-    {"title": "kebiasaan pendukung lain", "frequency": "Weekly:3"}
+    {
+      "title": "string",
+      "frequency": "string"
+    }
   ]
-}
-Buat 2-4 fase yang realistis dan berurutan, masing-masing berisi 2-5 tugas. Buat 1-4 kebiasaan pendukung yang relevan. Untuk field "frequency" tiap habit, gunakan PERSIS salah satu dari: "Daily" (setiap hari), atau "Weekly:N" dengan N = jumlah hari yang disarankan per minggu (contoh "Weekly:3").
-
-ATURAN PENJADWALAN (WAJIB):
-1. "duration_days" = total estimasi lama proyek dalam hari (kalau user sebutkan durasi eksplisit, pakai itu; kalau tidak, perkirakan yang realistis dari cakupan tugasnya).
-2. "day_range" tiap tugas = rentang hari kerja RELATIF terhadap mulainya proyek, format string "hari_mulai-hari_selesai" (hari ke-1 = hari proyek dimulai). Contoh: tugas di 3 hari pertama = "1-3", tugas minggu kedua = "8-10".
-3. Susun day_range tiap tugas berurutan mengikuti urutan fase (fase awal dapat rentang hari lebih kecil), TIDAK boleh tumpang tindih secara berlebihan dalam satu fase, dan totalnya harus muat dalam "duration_days".
-4. Tugas dengan estimasi durasi kerja pendek (mis. "2 jam") boleh diberi day_range 1 hari saja (mis. "5-5").`;
+}`;
 }
 
 function openProjectModal() {
-  document.getElementById('project-goal-input').value = '';
+  document.getElementById('project-title-input').value = '';
+  document.getElementById('project-details-input').value = '';
+  document.getElementById('project-duration-input').value = '';
+  document.getElementById('project-hours-input').value = '';
+  
+  const select = document.getElementById('project-tags-input');
+  if (select) {
+    Array.from(select.options).forEach(opt => opt.selected = false);
+  }
+
   document.getElementById('project-paste-input').value = '';
   openModal('project-modal');
 }
 
 function generateProjectPrompt() {
-  const goal = document.getElementById('project-goal-input').value.trim();
-  if (!goal) { showToast('Ketik tujuan/inisiatif dulu', 'error'); return; }
-  copyToClipboard(buildProjectPrompt(goal));
+  const title = document.getElementById('project-title-input').value.trim();
+  const description = document.getElementById('project-details-input').value.trim();
+  const durationDays = document.getElementById('project-duration-input').value.trim();
+  const dailyHours = document.getElementById('project-hours-input').value.trim();
+  
+  const select = document.getElementById('project-tags-input');
+  let tags = [];
+  if (select) {
+    tags = Array.from(select.selectedOptions).map(opt => opt.value);
+  }
+
+  if (!title || !durationDays) { 
+    showToast('Judul dan batas waktu wajib diisi', 'error'); 
+    return; 
+  }
+
+  const promptData = {
+    title,
+    description: description || '-',
+    durationDays: parseInt(durationDays, 10) || 14,
+    dailyHours: parseFloat(dailyHours) || 2,
+    tags: tags.length ? tags : ['Other']
+  };
+
+  copyToClipboard(buildProjectPrompt(promptData));
   openGemini();
   showToast('Prompt disalin & Gemini dibuka — tempel hasilnya di bawah');
 }
@@ -799,7 +1070,7 @@ function processProjectPaste() {
       const range = parseDayRange(t.day_range, durationDays);
       state.tasks.push({
         id: genId('task'), date: range ? range.endDate : null, title: String(t.title).trim(), tag, projectId,
-        phaseLabel: phase.phase_label || 'Tugas', durationLabel: t.duration_label || null,
+        phaseLabel: phase.phase_label || 'Tugas', durationLabel: t.duration_label || null, dailyTarget: t.daily_target || null,
         scheduleStart: range ? range.startDate : null, scheduleEnd: range ? range.endDate : null,
         isHabit: false, isDone: false, estimatedMinutes: null, timeHint: null,
         createdAt: new Date().toISOString(),
@@ -854,7 +1125,10 @@ function renderProjects() {
     const renderTask = t => `
       <div class="ptask surface-in-sm">
         <div class="subtask-check ${t.isDone ? 'done' : ''}" data-ptask-toggle="${t.id}"><i class="ph-bold ph-check"></i></div>
-        <div class="ptask-title ${t.isDone ? 'done' : ''}" data-ptask-toggle="${t.id}">${esc(t.title)}</div>
+        <div class="ptask-info" data-ptask-toggle="${t.id}">
+          <div class="ptask-title ${t.isDone ? 'done' : ''}">${esc(t.title)}</div>
+          ${t.dailyTarget ? `<div class="ptask-target"><i class="ph-bold ph-target"></i> ${esc(t.dailyTarget)}</div>` : ''}
+        </div>
         <div class="ptask-badges">${taskScheduleBadge(t)}${t.durationLabel ? `<span class="badge">${esc(t.durationLabel)}</span>` : ''}</div>
       </div>`;
 
@@ -863,7 +1137,9 @@ function renderProjects() {
       return `
       <div class="ptask surface-in-sm">
         <div class="subtask-check ${doneToday ? 'done' : ''}" data-phabit-toggle="${h.id}"><i class="ph-bold ph-check"></i></div>
-        <div class="ptask-title ${doneToday ? 'done' : ''}" data-phabit-toggle="${h.id}">${esc(h.title)}</div>
+        <div class="ptask-info" data-phabit-toggle="${h.id}">
+          <div class="ptask-title ${doneToday ? 'done' : ''}">${esc(h.title)}</div>
+        </div>
         <div class="ptask-badges">${habitFreqBadge(h)}</div>
       </div>`;
     };
@@ -1006,12 +1282,28 @@ function toggleHabitDone(id, dateStr) {
   if (!h) return;
   dateStr = dateStr || todayStr();
   h.completions = h.completions || {};
-  if (h.completions[dateStr]) delete h.completions[dateStr];
+  const wasDone = !!h.completions[dateStr];
+  if (wasDone) delete h.completions[dateStr];
   else {
     h.completions[dateStr] = true;
     if (dateStr === todayStr()) autoSyncHabitToTimelog(h);
   }
   saveHabits();
+
+  if (state.cloudUser && sb && h.cloud_id) {
+    if (!wasDone) {
+      sb.from('habit_logs').upsert({
+        habit_id: h.cloud_id,
+        user_id: state.cloudUser.id,
+        logged_date: dateStr
+      }, { onConflict: 'habit_id,logged_date' }).then();
+    } else {
+      sb.from('habit_logs').delete()
+        .eq('habit_id', h.cloud_id)
+        .eq('user_id', state.cloudUser.id)
+        .eq('logged_date', dateStr).then();
+    }
+  }
 }
 
 function renderHabitFreqGrid() {
@@ -1107,6 +1399,7 @@ function saveHabitFromModal() {
   saveHabits();
   closeModal('habit-modal');
   renderHabits();
+  if (typeof renderHomeHabits === 'function') renderHomeHabits();
   showToast(state.editingHabitId ? 'Kebiasaan diperbarui' : 'Kebiasaan disimpan');
 }
 
@@ -1116,6 +1409,7 @@ function deleteHabit(id) {
     saveHabits();
     closeModal('habit-modal');
     renderHabits();
+    if (typeof renderHomeHabits === 'function') renderHomeHabits();
     showToast('Kebiasaan dihapus');
   });
 }
@@ -1131,6 +1425,43 @@ function renderHabits() {
   wrap.innerHTML = state.habits.map(h => {
     const tagInfo = getTagInfo(h.tag);
     const doneToday = !!h.completions[t];
+    const linkedProject = h.projectId ? state.projects.find(p => p.id === h.projectId) : null;
+    return `
+    <div class="habit-card surface-el" data-habit="${h.id}">
+      <div class="habit-check ${doneToday ? 'done' : ''}" data-habit-toggle="${h.id}"><i class="ph-bold ph-check"></i></div>
+      <div class="habit-info" data-habit-edit="${h.id}">
+        <div class="habit-title ${doneToday ? 'done' : ''}">${esc(h.title)}</div>
+        <div class="habit-badges">
+          <span class="tag-chip ${tagInfo.isProject ? 'project' : ''}"><i class="ph ${tagInfo.icon}"></i> ${esc(tagInfo.label)}</span>
+          ${habitFreqBadge(h)}
+          ${linkedProject ? `<span class="badge"><i class="ph ph-link"></i> ${esc(linkedProject.title)}</span>` : ''}
+        </div>
+      </div>
+      <i class="ph ph-caret-right habit-chevron" data-habit-edit="${h.id}"></i>
+    </div>`;
+  }).join('');
+}
+
+function renderHomeHabits() {
+  const wrap = document.getElementById('home-habits-list');
+  if (!wrap) return;
+  const [y, m, d] = state.viewDate.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const wday = dt.getDay(); // 0-6 (Sun-Sat)
+  
+  const activeHabits = state.habits.filter(h => {
+    if (h.frequency === 'days') return (h.daysOfWeek || []).includes(wday);
+    return true;
+  });
+
+  if (!activeHabits.length) {
+    wrap.innerHTML = `<div class="empty-state" style="padding: 10px;"><p style="color: var(--text3); margin: 0;">Belum ada kebiasaan terjadwal untuk hari ini.</p></div>`;
+    return;
+  }
+  
+  wrap.innerHTML = activeHabits.map(h => {
+    const tagInfo = getTagInfo(h.tag);
+    const doneToday = !!h.completions[state.viewDate];
     const linkedProject = h.projectId ? state.projects.find(p => p.id === h.projectId) : null;
     return `
     <div class="habit-card surface-el" data-habit="${h.id}">
@@ -1213,6 +1544,7 @@ function processContextPaste() {
   saveHabits();
   closeModal('context-modal');
   renderHabits();
+  if (typeof renderHomeHabits === 'function') renderHomeHabits();
   const summary = data.context_summary ? ` — ${data.context_summary}` : '';
   showToast(`${count} kebiasaan ditambahkan${summary}`.slice(0, 90));
 }
@@ -1319,7 +1651,73 @@ function saveTimelogManual() {
   saveTimelog();
   closeModal('timelog-modal');
   renderTimelog();
+  renderConsistency();
+  renderDistributionChart();
   showToast('Aktivitas dicatat');
+}
+
+/* ── AI TIMELOG GENERATOR ──────────────────── */
+function buildAiTimelogPrompt(text) {
+  const tagList = Object.keys(BASE_TAGS).map(k => BASE_TAGS[k].label).join(', ');
+  return `Kamu adalah asisten pencatat jejak waktu (time-log). Ekstrak aktivitas dan durasinya dari teks berikut:
+"${text}"
+
+KATEGORI TAG TERSEDIA (PILIH SALAH SATU PERSIS): [${tagList}]
+
+Kembalikan HANYA format JSON valid berikut (array of objects), tanpa penjelasan tambahan:
+[
+  {
+    "title": "nama aktivitas",
+    "tag": "salah satu kategori tag di atas",
+    "durationMinutes": angka_durasi_dalam_menit
+  }
+]`;
+}
+
+function openAiTimelogModal() {
+  document.getElementById('ai-timelog-input').value = '';
+  document.getElementById('ai-timelog-paste-input').value = '';
+  openModal('ai-timelog-modal');
+}
+
+function generateAiTimelogPrompt() {
+  const text = document.getElementById('ai-timelog-input').value.trim();
+  if (!text) { showToast('Ketik aktivitas harian dulu', 'error'); return; }
+  copyToClipboard(buildAiTimelogPrompt(text));
+  openGemini();
+  showToast('Prompt disalin & Gemini dibuka — tempel hasilnya di bawah');
+}
+
+function processAiTimelogPaste() {
+  const raw = document.getElementById('ai-timelog-paste-input').value;
+  if (!raw.trim()) { showToast('Tempel hasil AI dulu', 'error'); return; }
+  let data;
+  try { data = extractJSON(raw); } catch { showToast('Gagal memproses JSON', 'error'); return; }
+  const items = Array.isArray(data) ? data : [data];
+  let count = 0;
+  items.forEach(it => {
+    if (!it || !it.title) return;
+    const tag = resolveAnyTag(it.tag);
+    const dur = Math.max(5, parseInt(it.durationMinutes || it.duration, 10) || 30);
+    state.timelog.push({
+      id: genId('log'),
+      date: todayStr(),
+      title: String(it.title).trim(),
+      tag,
+      durationMinutes: dur,
+      source: 'ai',
+      taskId: null,
+      createdAt: new Date().toISOString(),
+    });
+    count++;
+  });
+  if (!count) { showToast('Tidak ada jejak waktu terdeteksi di JSON', 'error'); return; }
+  saveTimelog();
+  closeModal('ai-timelog-modal');
+  renderTimelog();
+  renderConsistency();
+  renderDistributionChart();
+  showToast(`${count} jejak waktu ditambahkan`);
 }
 
 function renderTimelog() {
@@ -1501,6 +1899,142 @@ function showFormatExample() {
   showToast('Contoh format ditempel ke kotak teks');
 }
 
+/* ── AI SUPER BATCH PLANNER ────────────────── */
+function generateSuperBatchPrompt() {
+  const text = document.getElementById('batch-plan-input').value.trim();
+  if (!text) { showToast('Ketik ide rencana / tujuan besarmu dulu', 'error'); return; }
+  
+  const prompt = `Saya ingin membuat rencana jangka panjang. Tolong jadikan tujuan berikut menjadi rencana super komprehensif dalam satu JSON:
+"${text}"
+
+Tanggal hari ini: ${todayStr()}
+
+Kamu wajib menganalisa strategi yang paling optimal, lalu membaginya ke dalam proyek (projects), kebiasaan (habits), dan aktivitas harian (activities).
+
+Format JSON wajib seperti ini:
+\`\`\`json
+{
+  "analysis": "Penjelasan komprehensif mengapa rencana ini disusun sedemikian rupa...",
+  "projects": [
+    {
+      "title": "Nama Proyek",
+      "tag": "Productivity",
+      "tasks": [
+        {
+          "title": "Nama Tugas Spesifik",
+          "estimatedMinutes": 45,
+          "scheduleStartDate": "YYYY-MM-DD",
+          "scheduleEndDate": "YYYY-MM-DD"
+        }
+      ]
+    }
+  ],
+  "habits": [
+    {
+      "title": "Nama Kebiasaan",
+      "tag": "Kesehatan",
+      "frequency": "daily"
+    }
+  ],
+  "activities": [
+    {
+      "date": "YYYY-MM-DD",
+      "timeStart": "08:00",
+      "timeEnd": "09:30",
+      "title": "Fokus Sesi 1",
+      "category": "Belajar/Kerja",
+      "subTasks": ["sub 1", "sub 2"]
+    }
+  ]
+}
+\`\`\`
+
+Daftar kategori untuk activities: [${Object.keys(CATEGORIES).join(', ')}].
+Daftar tag untuk projects/habits: [${Object.keys(BASE_TAGS).join(', ')}].
+Gunakan YYYY-MM-DD asli berdasarkan tanggal hari ini. Kembalikan HANYA format JSON tanpa penjelasan lain.`;
+
+  copyToClipboard(prompt);
+  openGemini();
+  showToast('Prompt disalin & Gemini dibuka — tempel hasilnya di bawah');
+}
+
+function processBatchPlanJSON() {
+  const raw = document.getElementById('batch-plan-paste-input').value;
+  if (!raw.trim()) { showToast('Tempel master JSON dari AI terlebih dahulu', 'error'); return; }
+  
+  try {
+    const data = extractJSON(raw);
+    
+    if (data.projects && Array.isArray(data.projects)) {
+      data.projects.forEach(p => {
+        const pId = genId('proj');
+        state.projects.push({
+          id: pId, title: String(p.title).trim(), tag: resolveAnyTag(p.tag)
+        });
+        if (p.tasks && Array.isArray(p.tasks)) {
+          p.tasks.forEach(t => {
+            state.tasks.push({
+              id: genId('task'), projectId: pId, title: String(t.title).trim(),
+              estimatedMinutes: Number(t.estimatedMinutes) || 0,
+              scheduleStart: t.scheduleStartDate || todayStr(),
+              scheduleEnd: t.scheduleEndDate || todayStr(),
+              isDone: false,
+              date: t.scheduleStartDate || todayStr()
+            });
+          });
+        }
+      });
+      saveProjects();
+      saveTasks();
+    }
+    
+    if (data.habits && Array.isArray(data.habits)) {
+      data.habits.forEach(h => {
+        state.habits.push({
+          id: genId('hab'), title: String(h.title).trim(),
+          tag: resolveAnyTag(h.tag), frequency: h.frequency || 'daily',
+          createdAt: todayStr(), completions: {}
+        });
+      });
+      saveHabits();
+    }
+    
+    if (data.activities && Array.isArray(data.activities)) {
+      data.activities.forEach(a => {
+        const subTasks = Array.isArray(a.subTasks) 
+          ? a.subTasks.map(s => typeof s === 'string' ? { id: genId('sub'), title: s.trim(), isDone: false } : { id: genId('sub'), title: (s.title||'').trim(), isDone: !!s.isDone }).filter(s => s.title)
+          : [];
+        state.activities.push({
+          id: genId('act'),
+          date: a.date || todayStr(),
+          timeStart: (a.timeStart || '08:00').padStart(5, '0'),
+          timeEnd: (a.timeEnd || '09:00').padStart(5, '0'),
+          category: CATEGORIES[a.category] ? a.category : 'Lainnya',
+          title: String(a.title).trim(),
+          caloriesBurned: 0, caloriesConsumed: 0,
+          subTasks
+        });
+      });
+      save();
+    }
+    
+    closeModal('batch-plan-modal');
+    if (typeof renderProjects === 'function') renderProjects();
+    if (typeof renderHabits === 'function') renderHabits();
+    renderTimeline();
+    
+    if (data.analysis) {
+      alert("Eksekusi Berhasil!\n\nAnalisa AI:\n" + data.analysis);
+    } else {
+      showToast('Master Plan dieksekusi dengan sukses!');
+    }
+    
+  } catch (err) {
+    console.error(err);
+    showToast('Gagal memproses JSON. Pastikan format valid.', 'error');
+  }
+}
+
 /* ── EXPORT / IMPORT / RESET ───────────────── */
 function exportData() {
   const payload = {
@@ -1523,7 +2057,7 @@ function exportData() {
   a.download = `sevnlife-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast('Data berhasil diekspor');
+  showToast('Data berhasil diekstrak');
 }
 
 function importData(file) {
@@ -1534,18 +2068,20 @@ function importData(file) {
       if (!Array.isArray(data.activities)) throw new Error('invalid');
       const extra = [data.tasks, data.projects, data.habits, data.timelog, data.journal].filter(Array.isArray).flat().length;
       confirmDialog('Timpa data saat ini?', `File ini berisi ${data.activities.length} kegiatan${extra ? ` + ${extra} data proyek/tugas/kebiasaan/jurnal lainnya` : ''}. Data yang ada saat ini akan diganti.`, () => {
-        state.activities = data.activities;
-        if (Array.isArray(data.tasks)) state.tasks = data.tasks;
-        if (Array.isArray(data.projects)) state.projects = data.projects;
-        if (Array.isArray(data.habits)) state.habits = data.habits;
-        if (Array.isArray(data.timelog)) state.timelog = data.timelog;
-        if (Array.isArray(data.journal)) state.journal = data.journal;
-        if (data.settings && typeof data.settings === 'object') state.settings = { ...state.settings, ...data.settings };
-        save(); saveTasks(); saveProjects(); saveHabits(); saveTimelog(); saveJournal(); saveSettings();
-        applyTheme();
-        renderTimeline(); renderQuickTasks(); renderProjects(); renderHabits(); renderReminderUI();
-        showToast('Data berhasil dipulihkan');
-      });
+          state.activities = data.activities;
+          state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+          state.projects = Array.isArray(data.projects) ? data.projects : [];
+          state.habits = Array.isArray(data.habits) ? data.habits : [];
+          state.timelog = Array.isArray(data.timelog) ? data.timelog : [];
+          state.journal = Array.isArray(data.journal) ? data.journal : [];
+          if (data.settings && typeof data.settings === 'object') state.settings = { ...state.settings, ...data.settings };
+          save(); saveTasks(); saveProjects(); saveHabits(); saveTimelog(); saveJournal(); saveSettings();
+          applyTheme();
+          renderTimeline(); renderQuickTasks(); renderProjects(); renderHabits();
+          if (typeof renderHomeHabits === 'function') renderHomeHabits(); renderReminderUI();
+          if (document.getElementById('page-journal')?.classList.contains('active')) { renderTimelog(); renderConsistency(); renderDistributionChart(); renderJournalList(); }
+          showToast('Data berhasil dipulihkan');
+        });
     } catch {
       showToast('File tidak valid', 'error');
     }
@@ -1559,9 +2095,334 @@ function resetAllData() {
     state.openProjectId = null; state.openBlockId = null;
     save(); saveTasks(); saveProjects(); saveHabits(); saveTimelog(); saveJournal();
     renderTimeline(); renderQuickTasks(); renderProjects(); renderHabits();
+    if (typeof renderHomeHabits === 'function') renderHomeHabits();
     if (document.getElementById('page-journal')?.classList.contains('active')) { renderTimelog(); renderConsistency(); renderDistributionChart(); renderJournalList(); }
     showToast('Semua data telah dihapus');
   });
+}
+
+/* ── TELEGRAM PAIRING ──────────────────────── */
+function generatePairingCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+function openTelegramPairingModal() {
+  let code = state.settings.tgPairingCode;
+  const now = Date.now();
+  if (!code || !state.settings.tgPairingExpires || now > state.settings.tgPairingExpires) {
+    code = generatePairingCode();
+    state.settings.tgPairingCode = code;
+    state.settings.tgPairingExpires = now + (15 * 60 * 1000);
+    saveSettings();
+  }
+
+  // Jika akun cloud login, simpan kode pairing langsung ke Supabase
+  if (state.cloudUser && sb) {
+    sb.from('profiles').update({
+      pairing_code: code,
+      pairing_expires_at: new Date(now + 15 * 60 * 1000).toISOString()
+    }).eq('id', state.cloudUser.id).then();
+  }
+
+  const codeDisplay = document.getElementById('tg-pairing-code-display');
+  if (codeDisplay) codeDisplay.textContent = code;
+
+  const directLink = document.getElementById('btn-tg-direct-link');
+  if (directLink) directLink.href = `https://t.me/SevnLifeBot?start=${code}`;
+
+  openModal('tg-modal');
+}
+
+/* ── SUPABASE CLOUD AUTH & 2-WAY SYNC ───────── */
+async function initCloudAuth() {
+  if (!sb) initSupabase();
+  if (!sb) return;
+
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) {
+      state.cloudUser = session.user;
+      await fetchCloudProfile();
+      renderCloudUI();
+      syncWithCloud(true);
+    }
+  } catch (err) {
+    console.warn('Cloud session error:', err);
+  }
+
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (session?.user) {
+      state.cloudUser = session.user;
+      await fetchCloudProfile();
+      renderCloudUI();
+      syncWithCloud(true);
+    } else {
+      state.cloudUser = null;
+      state.cloudProfile = null;
+      renderCloudUI();
+    }
+  });
+}
+
+async function fetchCloudProfile() {
+  if (!sb || !state.cloudUser) return;
+  try {
+    const { data } = await sb
+      .from('profiles')
+      .select('*')
+      .eq('id', state.cloudUser.id)
+      .single();
+    if (data) state.cloudProfile = data;
+  } catch (e) {
+    console.warn('Fetch profile error:', e);
+  }
+}
+
+function renderCloudUI() {
+  const titleEl = document.getElementById('cloud-account-title');
+  const subEl = document.getElementById('cloud-account-sub');
+  const btnLabel = document.getElementById('cloud-btn-label');
+  const syncBtn = document.getElementById('btn-cloud-sync');
+  const logoutBtn = document.getElementById('btn-cloud-logout');
+  const tgSub = document.getElementById('tg-pairing-sub');
+
+  if (state.cloudUser) {
+    const name = state.cloudProfile?.full_name || state.cloudUser.user_metadata?.full_name || state.cloudUser.email.split('@')[0];
+    if (titleEl) titleEl.textContent = `🟢 ${name}`;
+    if (subEl) subEl.textContent = `${state.cloudUser.email} · Cloud Aktif`;
+    if (btnLabel) btnLabel.textContent = 'Akun';
+    if (syncBtn) syncBtn.style.display = 'inline-flex';
+    if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+
+    if (state.cloudProfile?.telegram_chat_id && tgSub) {
+      tgSub.textContent = `✅ Terhubung ke Telegram (@SevnLifeBot)`;
+    }
+  } else {
+    if (titleEl) titleEl.textContent = 'Mode Offline';
+    if (subEl) subEl.textContent = 'Data hanya tersimpan lokal di browser ini';
+    if (btnLabel) btnLabel.textContent = 'Masuk / Daftar';
+    if (syncBtn) syncBtn.style.display = 'none';
+    if (logoutBtn) logoutBtn.style.display = 'none';
+  }
+}
+
+function openCloudModal() {
+  const errEl = document.getElementById('cloud-auth-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+  // Jika sudah login, tampilkan info
+  if (state.cloudUser) {
+    const emailInput = document.getElementById('cloud-email-input');
+    if (emailInput) emailInput.value = state.cloudUser.email;
+    showToast(`Anda saat ini masuk sebagai ${state.cloudUser.email}`);
+  }
+
+  setCloudAuthTab('login');
+  openModal('cloud-modal');
+}
+
+function setCloudAuthTab(tab) {
+  state.authTab = tab;
+  const loginTab = document.getElementById('tab-cloud-login');
+  const regTab = document.getElementById('tab-cloud-register');
+  const nameField = document.getElementById('cloud-name-field');
+  const submitLabel = document.getElementById('cloud-submit-label');
+
+  if (tab === 'login') {
+    if (loginTab) { loginTab.style.background = 'var(--base)'; loginTab.style.boxShadow = 'var(--el-xs)'; loginTab.style.color = 'var(--accent-dark)'; }
+    if (regTab) { regTab.style.background = 'transparent'; regTab.style.boxShadow = 'none'; regTab.style.color = 'var(--text2)'; }
+    if (nameField) nameField.style.display = 'none';
+    if (submitLabel) submitLabel.textContent = 'Masuk ke Akun Cloud';
+  } else {
+    if (regTab) { regTab.style.background = 'var(--base)'; regTab.style.boxShadow = 'var(--el-xs)'; regTab.style.color = 'var(--accent-dark)'; }
+    if (loginTab) { loginTab.style.background = 'transparent'; loginTab.style.boxShadow = 'none'; loginTab.style.color = 'var(--text2)'; }
+    if (nameField) nameField.style.display = 'block';
+    if (submitLabel) submitLabel.textContent = 'Daftar Akun Cloud';
+  }
+}
+
+async function handleCloudAuthSubmit() {
+  if (!sb) return showToast('Modul Supabase belum dimuat', 'error');
+  const email = (document.getElementById('cloud-email-input')?.value || '').trim();
+  const password = (document.getElementById('cloud-password-input')?.value || '').trim();
+  const fullName = (document.getElementById('cloud-name-input')?.value || '').trim();
+  const errEl = document.getElementById('cloud-auth-error');
+
+  if (!email || !password) {
+    if (errEl) { errEl.textContent = 'Email dan kata sandi wajib diisi.'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (password.length < 6) {
+    if (errEl) { errEl.textContent = 'Kata sandi minimal 6 karakter.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  const submitBtn = document.getElementById('btn-submit-cloud-auth');
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    if (state.authTab === 'login') {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      state.cloudUser = data.user;
+      await fetchCloudProfile();
+      renderCloudUI();
+      closeModal('cloud-modal');
+      showToast(`Selamat datang, ${state.cloudProfile?.full_name || email}!`, 'success');
+      syncWithCloud();
+    } else {
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName || email.split('@')[0] } }
+      });
+      if (error) throw error;
+      state.cloudUser = data.user;
+      closeModal('cloud-modal');
+      showToast('Pendaftaran berhasil! Akun cloud aktif.', 'success');
+      renderCloudUI();
+      syncWithCloud();
+    }
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || 'Terjadi kesalahan autentikasi.'; errEl.style.display = 'block'; }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function logoutCloud() {
+  if (!sb) return;
+  confirmDialog('Keluar dari Akun Cloud?', 'Data lokal di browser ini akan tetap aman. Anda bisa masuk kembali kapan saja.', async () => {
+    await sb.auth.signOut();
+    state.cloudUser = null;
+    state.cloudProfile = null;
+    renderCloudUI();
+    showToast('Berhasil keluar dari akun cloud');
+  });
+}
+
+/* ── 2-WAY DATA SYNC ENGINE ─────────────────── */
+async function syncWithCloud(silent = false) {
+  if (!sb || !state.cloudUser || state.isSyncing) return;
+  state.isSyncing = true;
+  const syncBtn = document.getElementById('btn-cloud-sync');
+  if (syncBtn) syncBtn.style.transform = 'rotate(180deg)';
+
+  try {
+    // 1. Profil & Telegram chat ID
+    await fetchCloudProfile();
+
+    // 2. Sinkronisasi Tugas (Tasks)
+    const { data: cloudTasks, error: tErr } = await sb
+      .from('tasks')
+      .select('*')
+      .eq('user_id', state.cloudUser.id);
+
+    if (!tErr && Array.isArray(cloudTasks)) {
+      const cloudMap = new Map();
+      cloudTasks.forEach(ct => cloudMap.set(ct.id, ct));
+
+      // Update status lokal jika di cloud sudah done
+      state.tasks.forEach(lt => {
+        if (lt.cloud_id && cloudMap.has(lt.cloud_id)) {
+          const ct = cloudMap.get(lt.cloud_id);
+          if (ct.status === 'done' && !lt.isDone) {
+            lt.isDone = true;
+            autoSyncTaskToTimelog(lt);
+          }
+        }
+      });
+
+      // Tambahkan tugas baru dari Telegram/Cloud ke lokal
+      const localCloudIds = new Set(state.tasks.map(t => t.cloud_id).filter(Boolean));
+      cloudTasks.forEach(ct => {
+        if (!localCloudIds.has(ct.id)) {
+          state.tasks.unshift({
+            id: 'task_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            cloud_id: ct.id,
+            title: ct.title,
+            tag: 'Productivity',
+            date: todayStr(),
+            isDone: ct.status === 'done',
+            priority: ct.priority || 'medium'
+          });
+        }
+      });
+
+      // Push tugas lokal yang belum tersimpan di Cloud
+      for (const lt of state.tasks) {
+        if (!lt.cloud_id) {
+          const { data: ins } = await sb.from('tasks').insert({
+            user_id: state.cloudUser.id,
+            title: lt.title,
+            status: lt.isDone ? 'done' : 'todo',
+            priority: lt.priority || 'medium'
+          }).select().single();
+          if (ins) lt.cloud_id = ins.id;
+        }
+      }
+
+      saveTasks();
+      renderQuickTasks();
+    }
+
+    // 3. Sinkronisasi Kebiasaan (Habits & Logs)
+    const { data: cloudHabits } = await sb.from('habits').select('*').eq('user_id', state.cloudUser.id);
+    if (Array.isArray(cloudHabits)) {
+      const cloudHMap = new Map(cloudHabits.map(h => [(h.name || '').toLowerCase().trim(), h]));
+      for (const lh of state.habits) {
+        const norm = (lh.title || lh.name || '').toLowerCase().trim();
+        if (cloudHMap.has(norm)) {
+          lh.cloud_id = cloudHMap.get(norm).id;
+        } else if (!lh.cloud_id) {
+          const { data: insH } = await sb.from('habits').insert({
+            user_id: state.cloudUser.id,
+            name: lh.title || lh.name,
+            icon: lh.icon || '🔥',
+            target_days: lh.days || ['mon','tue','wed','thu','fri','sat','sun']
+          }).select().single();
+          if (insH) lh.cloud_id = insH.id;
+        }
+      }
+
+      // Tarik log hari ini
+      const today = todayStr();
+      const { data: cloudLogs } = await sb.from('habit_logs')
+        .select('habit_id')
+        .eq('user_id', state.cloudUser.id)
+        .eq('logged_date', today);
+
+      if (Array.isArray(cloudLogs) && cloudLogs.length > 0) {
+        const doneCloudIds = new Set(cloudLogs.map(l => l.habit_id));
+        state.habits.forEach(lh => {
+          if (lh.cloud_id && doneCloudIds.has(lh.cloud_id)) {
+            lh.completions = lh.completions || {};
+            if (!lh.completions[today]) {
+              lh.completions[today] = true;
+              autoSyncHabitToTimelog(lh);
+            }
+          }
+        });
+      }
+
+      saveHabits();
+      renderHabits();
+    }
+
+    renderCloudUI();
+    if (!silent) showToast('✅ Data tersinkronisasi 2-arah dengan Telegram!', 'success');
+  } catch (err) {
+    console.warn('Sync error:', err);
+    if (!silent) showToast('Gagal sinkronisasi cloud', 'error');
+  } finally {
+    state.isSyncing = false;
+    if (syncBtn) syncBtn.style.transform = 'none';
+  }
 }
 
 /* ── EVENT WIRING ──────────────────────────── */
@@ -1584,7 +2445,20 @@ function setupEvents() {
   });
   document.getElementById('btn-settings-shortcut').addEventListener('click', () => goToPage('settings'));
 
-  document.getElementById('fab').addEventListener('click', () => openActivityModal(null));
+  /* ── FAB (Choice: Manual vs AI) ── */
+  document.getElementById('fab').addEventListener('click', () => {
+    openChoiceModal({
+      title: 'Tambah Kegiatan',
+      titleIcon: 'ph-note-pencil',
+      subtitle: 'Pilih cara menambahkan kegiatan ke linimasa:',
+      manualTitle: 'Versi Manual',
+      manualDesc: 'Isi formulir kegiatan (judul, jam, kategori, sub-tugas, kalori).',
+      aiTitle: 'Versi Prompt AI',
+      aiDesc: 'Tulis rencana aktivitas bebas, AI Gemini merapikan jadwalnya.',
+      onManual: () => openActivityModal(null),
+      onAi: () => openAiActivityModal()
+    });
+  });
   document.getElementById('btn-cancel-activity').addEventListener('click', () => closeModal('activity-modal'));
   document.getElementById('btn-save-activity').addEventListener('click', saveActivityFromModal);
   document.getElementById('btn-delete-activity').addEventListener('click', () => {
@@ -1595,6 +2469,24 @@ function setupEvents() {
     });
   });
   document.getElementById('activity-modal').addEventListener('click', e => { if (e.target.id === 'activity-modal') closeModal('activity-modal'); });
+
+  /* ── AI Activity Modal ── */
+  document.getElementById('btn-cancel-ai-activity').addEventListener('click', () => closeModal('ai-activity-modal'));
+  document.getElementById('btn-generate-ai-activity').addEventListener('click', generateAiActivityPrompt);
+  document.getElementById('btn-process-ai-activity').addEventListener('click', processAiActivityPaste);
+  document.getElementById('ai-activity-modal').addEventListener('click', e => { if (e.target.id === 'ai-activity-modal') closeModal('ai-activity-modal'); });
+
+  /* ── Choice Modal ── */
+  document.getElementById('choice-btn-manual').addEventListener('click', () => {
+    closeModal('choice-modal');
+    if (currentChoiceConfig && currentChoiceConfig.onManual) currentChoiceConfig.onManual();
+  });
+  document.getElementById('choice-btn-ai').addEventListener('click', () => {
+    closeModal('choice-modal');
+    if (currentChoiceConfig && currentChoiceConfig.onAi) currentChoiceConfig.onAi();
+  });
+  document.getElementById('btn-cancel-choice').addEventListener('click', () => closeModal('choice-modal'));
+  document.getElementById('choice-modal').addEventListener('click', e => { if (e.target.id === 'choice-modal') closeModal('choice-modal'); });
 
   document.getElementById('activity-start').addEventListener('input', () => {
     if (!state.endTouched) document.getElementById('activity-end').value = document.getElementById('activity-start').value;
@@ -1652,6 +2544,33 @@ function setupEvents() {
   });
   document.getElementById('btn-reset').addEventListener('click', resetAllData);
 
+  /* ── Cloud Auth & Sync Events ── */
+  document.getElementById('btn-open-cloud-modal')?.addEventListener('click', openCloudModal);
+  document.getElementById('btn-close-cloud-modal')?.addEventListener('click', () => closeModal('cloud-modal'));
+  document.getElementById('cloud-modal')?.addEventListener('click', e => { if (e.target.id === 'cloud-modal') closeModal('cloud-modal'); });
+  document.getElementById('tab-cloud-login')?.addEventListener('click', () => setCloudAuthTab('login'));
+  document.getElementById('tab-cloud-register')?.addEventListener('click', () => setCloudAuthTab('register'));
+  document.getElementById('btn-submit-cloud-auth')?.addEventListener('click', handleCloudAuthSubmit);
+  document.getElementById('btn-cloud-sync')?.addEventListener('click', () => syncWithCloud(false));
+  document.getElementById('btn-cloud-logout')?.addEventListener('click', logoutCloud);
+
+  /* ── Telegram Pairing Events ── */
+  document.getElementById('btn-open-tg-modal')?.addEventListener('click', openTelegramPairingModal);
+  document.getElementById('btn-close-tg-modal')?.addEventListener('click', () => closeModal('tg-modal'));
+  document.getElementById('tg-modal')?.addEventListener('click', e => { if (e.target.id === 'tg-modal') closeModal('tg-modal'); });
+  document.getElementById('btn-copy-pairing-cmd')?.addEventListener('click', () => {
+    const code = state.settings.tgPairingCode || '';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(`/pair ${code}`).then(() => {
+        showToast('Perintah pairing disalin ke clipboard!', 'success');
+      }).catch(() => {
+        showToast(`Ketik di Telegram: /pair ${code}`, 'info');
+      });
+    } else {
+      showToast(`Ketik di Telegram: /pair ${code}`, 'info');
+    }
+  });
+
   document.getElementById('confirm-cancel').addEventListener('click', () => closeModal('confirm-modal'));
   document.getElementById('confirm-ok').addEventListener('click', () => {
     closeModal('confirm-modal');
@@ -1670,12 +2589,6 @@ function setupEvents() {
     renderGreeting();
   });
 
-  /* ── Quick Daily Entry ── */
-  document.getElementById('btn-quick-entry-send').addEventListener('click', sendQuickEntry);
-  document.getElementById('quick-entry-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendQuickEntry(); });
-  document.getElementById('btn-cancel-quick-entry').addEventListener('click', () => closeModal('quick-entry-modal'));
-  document.getElementById('btn-process-quick-entry').addEventListener('click', processQuickEntryPaste);
-  document.getElementById('quick-entry-modal').addEventListener('click', e => { if (e.target.id === 'quick-entry-modal') closeModal('quick-entry-modal'); });
   document.getElementById('quick-tasks-wrap').addEventListener('click', e => {
     const el = e.target.closest('[data-qtask-toggle]');
     if (el) toggleQuickTask(el.dataset.qtaskToggle);
@@ -1693,12 +2606,30 @@ function setupEvents() {
     renderQuickTasks();
   });
 
-  /* ── Projects ── */
-  document.getElementById('btn-new-project').addEventListener('click', openProjectModal);
+  /* ── Projects (Choice: Manual vs AI) ── */
+  document.getElementById('btn-new-project').addEventListener('click', () => {
+    openChoiceModal({
+      title: 'Buat Proyek Baru',
+      titleIcon: 'ph-rocket-launch',
+      subtitle: 'Pilih cara membuat proyek / goal baru:',
+      manualTitle: 'Versi Manual',
+      manualDesc: 'Tentukan judul, target waktu, dan rincian tugas secara manual.',
+      aiTitle: 'Versi Prompt AI',
+      aiDesc: 'Isi detail racikan proyek, AI menyusun fase, tugas & kebiasaan.',
+      onManual: () => openManualProjectModal(),
+      onAi: () => openProjectModal()
+    });
+  });
   document.getElementById('btn-cancel-project').addEventListener('click', () => closeModal('project-modal'));
   document.getElementById('btn-generate-project').addEventListener('click', generateProjectPrompt);
   document.getElementById('btn-process-project').addEventListener('click', processProjectPaste);
   document.getElementById('project-modal').addEventListener('click', e => { if (e.target.id === 'project-modal') closeModal('project-modal'); });
+
+  /* ── Manual Project Modal ── */
+  document.getElementById('btn-cancel-manual-project').addEventListener('click', () => closeModal('manual-project-modal'));
+  document.getElementById('btn-save-manual-project').addEventListener('click', saveManualProject);
+  document.getElementById('manual-project-modal').addEventListener('click', e => { if (e.target.id === 'manual-project-modal') closeModal('manual-project-modal'); });
+
   document.getElementById('projects-list').addEventListener('click', e => {
     const toggle = e.target.closest('[data-project-toggle]');
     const ptaskToggle = e.target.closest('[data-ptask-toggle]');
@@ -1716,8 +2647,20 @@ function setupEvents() {
     }
   });
 
-  /* ── Habits ── */
-  document.getElementById('btn-new-habit').addEventListener('click', () => openHabitModal(null));
+  /* ── Habits (Choice: Manual vs AI) ── */
+  document.getElementById('btn-new-habit').addEventListener('click', () => {
+    openChoiceModal({
+      title: 'Tambah Kebiasaan',
+      titleIcon: 'ph-repeat',
+      subtitle: 'Pilih cara membuat kebiasaan baru:',
+      manualTitle: 'Versi Manual',
+      manualDesc: 'Isi judul kebiasaan, frekuensi, target mingguan & tag.',
+      aiTitle: 'Versi Prompt AI',
+      aiDesc: 'Ceritakan gaya hidup/pekerjaan, AI menyarankan kebiasaan relevan.',
+      onManual: () => openHabitModal(null),
+      onAi: () => openContextModal()
+    });
+  });
   document.getElementById('btn-cancel-habit').addEventListener('click', () => closeModal('habit-modal'));
   document.getElementById('btn-save-habit').addEventListener('click', saveHabitFromModal);
   document.getElementById('btn-delete-habit').addEventListener('click', () => deleteHabit(state.editingHabitId));
@@ -1728,6 +2671,12 @@ function setupEvents() {
     if (check) { toggleHabitDone(check.dataset.habitToggle); renderHabits(); return; }
     if (edit) { const h = state.habits.find(x => x.id === edit.dataset.habitEdit); if (h) openHabitModal(h); }
   });
+  document.getElementById('home-habits-list')?.addEventListener('click', e => {
+    const check = e.target.closest('[data-habit-toggle]');
+    const edit = e.target.closest('[data-habit-edit]');
+    if (check) { toggleHabitDone(check.dataset.habitToggle, state.viewDate); renderHomeHabits(); renderHabits(); return; }
+    if (edit) { const h = state.habits.find(x => x.id === edit.dataset.habitEdit); if (h) openHabitModal(h); }
+  });
 
   /* ── Contextual AI ── */
   document.getElementById('btn-context-ai').addEventListener('click', openContextModal);
@@ -1736,13 +2685,43 @@ function setupEvents() {
   document.getElementById('btn-process-context').addEventListener('click', processContextPaste);
   document.getElementById('context-modal').addEventListener('click', e => { if (e.target.id === 'context-modal') closeModal('context-modal'); });
 
-  /* ── Time-Log & Story Maker ── */
-  document.getElementById('btn-add-timelog').addEventListener('click', openTimelogModal);
+  /* ── Time-Log (Choice: Manual vs AI) & Story Maker ── */
+  document.getElementById('btn-add-timelog').addEventListener('click', () => {
+    openChoiceModal({
+      title: 'Catat Jejak Waktu',
+      titleIcon: 'ph-clock-clockwise',
+      subtitle: 'Pilih cara mencatat jejak waktu kegiatan:',
+      manualTitle: 'Versi Manual',
+      manualDesc: 'Input judul aktivitas, kategori & durasi menit secara langsung.',
+      aiTitle: 'Versi Prompt AI',
+      aiDesc: 'Ceritakan aktivitas hari ini, AI menghitung & merapikan durasinya.',
+      onManual: () => openTimelogModal(),
+      onAi: () => openAiTimelogModal()
+    });
+  });
   document.getElementById('btn-cancel-timelog').addEventListener('click', () => closeModal('timelog-modal'));
   document.getElementById('btn-save-timelog').addEventListener('click', saveTimelogManual);
   document.getElementById('timelog-modal').addEventListener('click', e => { if (e.target.id === 'timelog-modal') closeModal('timelog-modal'); });
+
+  /* ── AI Timelog Modal ── */
+  document.getElementById('btn-cancel-ai-timelog').addEventListener('click', () => closeModal('ai-timelog-modal'));
+  document.getElementById('btn-generate-ai-timelog').addEventListener('click', generateAiTimelogPrompt);
+  document.getElementById('btn-process-ai-timelog').addEventListener('click', processAiTimelogPaste);
+  document.getElementById('ai-timelog-modal').addEventListener('click', e => { if (e.target.id === 'ai-timelog-modal') closeModal('ai-timelog-modal'); });
+
   document.getElementById('btn-generate-story').addEventListener('click', generateStoryPrompt);
   document.getElementById('btn-save-story').addEventListener('click', saveStoryEntry);
+
+  /* ── AI Super Batch Planner ── */
+  document.getElementById('btn-open-batch-planner').addEventListener('click', () => {
+    document.getElementById('batch-plan-input').value = '';
+    document.getElementById('batch-plan-paste-input').value = '';
+    openModal('batch-plan-modal');
+  });
+  document.getElementById('btn-cancel-batch-plan').addEventListener('click', () => closeModal('batch-plan-modal'));
+  document.getElementById('btn-generate-batch-plan').addEventListener('click', generateSuperBatchPrompt);
+  document.getElementById('btn-process-batch-plan').addEventListener('click', processBatchPlanJSON);
+  document.getElementById('batch-plan-modal').addEventListener('click', e => { if (e.target.id === 'batch-plan-modal') closeModal('batch-plan-modal'); });
 }
 
 /* ── PWA ────────────────────────────────────── */
@@ -1763,5 +2742,18 @@ document.addEventListener('DOMContentLoaded', () => {
   renderTimeline();
   renderReminderUI();
   registerSW();
-  setInterval(checkReminderTick, 60000);
+  initCloudAuth();
+
+  // Auto-sync berkala dengan Supabase & Telegram tiap 30 detik
+  setInterval(() => {
+    if (state.cloudUser) syncWithCloud(true);
+  }, 30000);
+
+  setInterval(() => {
+    checkReminderTick();
+    if (document.getElementById('page-home').classList.contains('active')) {
+      renderGreeting();
+      if (state.viewDate === todayStr()) renderTimeline();
+    }
+  }, 60000);
 });

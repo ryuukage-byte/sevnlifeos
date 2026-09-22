@@ -4,7 +4,7 @@
    tidak ada API dinamis yang butuh data real-time).
    ═══════════════════════════════════════════════ */
 
-const swVersion = new URL(self.location.href).searchParams.get('v') || 'v8';
+const swVersion = new URL(self.location.href).searchParams.get('v') || 'v10';
 const CACHE_NAME = 'sevnlifeos-' + swVersion;
 const CACHE_URLS = [
   './index.html',

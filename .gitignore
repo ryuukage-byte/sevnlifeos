@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+
+# Local IDE & OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local test & debug scripts
+test-*.js
